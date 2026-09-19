@@ -1,7 +1,9 @@
 package com.loopa.app.ui.feed
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,15 +23,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,14 +59,16 @@ import com.loopa.app.data.effectivePlayCount
 import com.loopa.app.media.PlayerConnection
 import com.loopa.app.ui.appViewModel
 import com.loopa.app.ui.common.EmptyState
+import com.loopa.app.ui.common.formatTime
 import com.loopa.app.ui.player.LoopEditorSheet
 import com.loopa.app.ui.player.LoopScope
 import com.loopa.app.ui.player.rememberPlayerState
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Playlista jak w TikToku: jeden film na ekran, przewijanie palcem w pionie,
- * biezacy klip leci w kolko. Automatyczne przewijanie wlacza sie osobno,
- * w menu pod ikona suwakow.
+ * biezacy klip leci w kolko. Automatyczne przewijanie i predkosc wlaczaja sie
+ * osobno, w menu pod ikonami w gornym pasku.
  */
 @UnstableApi
 @Composable
@@ -75,6 +83,7 @@ fun FeedScreen(
 
     var showLoopEditor by remember { mutableStateOf(false) }
     var showAutoAdvance by remember { mutableStateOf(false) }
+    var showSpeed by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(
         initialPage = startIndex,
@@ -104,6 +113,12 @@ fun FeedScreen(
         if (player.durationMs > 0) vm.rememberDuration(player.trackId, player.durationMs)
     }
 
+    // Zmiana filmu resetuje predkosc do normalnej - tak jak w wiekszosci
+    // odtwarzaczy wideo, przyspieszenie nie leci samo w nieskonczonosc.
+    LaunchedEffect(player.queueIndex) {
+        if (player.speed != 1f) PlayerConnection.setPlaybackSpeed(1f)
+    }
+
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (state.entries.isEmpty()) {
             EmptyState(
@@ -114,15 +129,22 @@ fun FeedScreen(
         } else {
             VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
                 val entry = state.entries[page]
+                val isCurrent = page == pagerState.settledPage
                 FeedPage(
                     entry = entry,
                     position = page + 1,
                     total = state.entries.size,
                     playCount = effectivePlayCount(state.playlist, entry),
-                    isCurrent = page == pagerState.settledPage,
+                    isCurrent = isCurrent,
                     isPlaying = player.isPlaying,
                     controllerAttached = player.controller != null,
+                    positionMs = if (isCurrent) player.positionMs else 0L,
+                    durationMs = if (isCurrent) player.durationMs else 0L,
+                    onSeek = { player.controller?.seekTo(it) },
                     onTogglePlay = { PlayerConnection.togglePlayPause() },
+                    onHoldSpeedStart = { PlayerConnection.setPlaybackSpeed(2f) },
+                    onHoldSpeedEnd = { normalSpeed -> PlayerConnection.setPlaybackSpeed(normalSpeed) },
+                    normalSpeedBeforeHold = player.speed,
                     attachPlayer = { view -> view.player = player.controller },
                 )
             }
@@ -173,6 +195,18 @@ fun FeedScreen(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
+            if (player.speed != 1f) {
+                Text(
+                    text = "${formatSpeedShort(player.speed)}×",
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(end = 4.dp),
+                )
+            }
+            IconButton(onClick = { showSpeed = true }) {
+                Icon(Icons.Filled.Speed, contentDescription = "Szybkość", tint = Color.White)
+            }
             IconButton(onClick = { showLoopEditor = true }) {
                 Icon(Icons.Filled.Repeat, contentDescription = "Pętla", tint = Color.White)
             }
@@ -222,6 +256,14 @@ fun FeedScreen(
             )
         }
     }
+
+    if (showSpeed) {
+        SpeedSheet(
+            initialSpeed = player.speed,
+            onSpeedChange = { PlayerConnection.setPlaybackSpeed(it) },
+            onDismiss = { showSpeed = false },
+        )
+    }
 }
 
 @UnstableApi
@@ -234,7 +276,13 @@ private fun FeedPage(
     isCurrent: Boolean,
     isPlaying: Boolean,
     controllerAttached: Boolean,
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
     onTogglePlay: () -> Unit,
+    onHoldSpeedStart: () -> Unit,
+    onHoldSpeedEnd: (normalSpeed: Float) -> Unit,
+    normalSpeedBeforeHold: Float,
     attachPlayer: (PlayerView) -> Unit,
 ) {
     Box(
@@ -242,7 +290,26 @@ private fun FeedPage(
             .fillMaxSize()
             .background(Color.Black)
             .pointerInput(isCurrent) {
-                detectTapGestures(onTap = { if (isCurrent) onTogglePlay() })
+                if (!isCurrent) return@pointerInput
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    // Przytrzymanie dluzej niz 200ms = przyspieszenie na czas
+                    // trzymania. Krotszy dotyk to zwykly tap (pauza/graj) i nie
+                    // ma tu zadnego skoku predkosci - stad wyscig z timeoutem
+                    // zamiast wprost polegac na onLongPress, ktory nie mowi, kiedy
+                    // palec sie podnosi.
+                    val releasedEarly = withTimeoutOrNull(200) {
+                        waitForUpOrCancellation()
+                        true
+                    }
+                    if (releasedEarly == true) {
+                        onTogglePlay()
+                    } else if (releasedEarly == null) {
+                        onHoldSpeedStart()
+                        waitForUpOrCancellation()
+                        onHoldSpeedEnd(normalSpeedBeforeHold)
+                    }
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
@@ -291,34 +358,93 @@ private fun FeedPage(
             Modifier
                 .align(Alignment.BottomStart)
                 .navigationBarsPadding()
-                .fillMaxWidth()
-                .background(Color.Black.copy(alpha = 0.35f))
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                .fillMaxWidth(),
         ) {
-            Text(
-                text = entry.track.title,
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = "Film $position z $total" + if (playCount == null) " · w kółko" else " · ${playCount}×",
-                color = Color.White.copy(alpha = 0.6f),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            entry.track.author?.let {
-                Spacer(Modifier.height(2.dp))
+            // Pasek przewijania - wlasny obszar dotyku, wiec nie koliduje z
+            // gestem pauzy/przyspieszenia na reszcie ekranu. Dziala tylko dla
+            // biezacej strony, bo tylko ona zna prawdziwa pozycje odtwarzacza.
+            if (isCurrent && durationMs > 0) {
+                FeedSeekBar(positionMs = positionMs, durationMs = durationMs, onSeek = onSeek)
+            }
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black.copy(alpha = 0.35f))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(
-                    text = it,
-                    color = Color.White.copy(alpha = 0.75f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
+                    text = entry.track.title,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+                Text(
+                    text = "Film $position z $total" + if (playCount == null) " · w kółko" else " · ${playCount}×",
+                    color = Color.White.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                entry.track.author?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = it,
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
 }
+
+/**
+ * Cienki pasek przewijania nad podpisem - tak jak w TikToku. Podczas
+ * przeciagania pokazuje wlasna, plynna pozycje (bez tego suwak "skakalby"
+ * z powrotem, zanim siec zdazy potwierdzic przewiniecie).
+ */
+@Composable
+private fun FeedSeekBar(
+    positionMs: Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
+) {
+    var scrubbing by remember { mutableFloatStateOf(-1f) }
+    val fraction = if (scrubbing >= 0f) scrubbing else (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+        Slider(
+            value = fraction,
+            onValueChange = { scrubbing = it },
+            onValueChangeFinished = {
+                if (scrubbing >= 0f) onSeek((scrubbing * durationMs).toLong())
+                scrubbing = -1f
+            },
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color.White.copy(alpha = 0.35f),
+            ),
+            modifier = Modifier.fillMaxWidth().height(24.dp),
+        )
+        Row(Modifier.fillMaxWidth().padding(bottom = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                formatTime((fraction * durationMs).toLong()),
+                color = Color.White.copy(alpha = 0.85f),
+                style = MaterialTheme.typography.labelSmall,
+            )
+            Text(
+                formatTime(durationMs),
+                color = Color.White.copy(alpha = 0.6f),
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+private fun formatSpeedShort(speed: Float): String =
+    if (speed == speed.toInt().toFloat()) "${speed.toInt()}" else "%.1f".format(speed)

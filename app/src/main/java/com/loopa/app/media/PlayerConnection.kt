@@ -100,6 +100,18 @@ object PlayerConnection {
         controller.play()
     }
 
+    /**
+     * Predkosc odtwarzania - nie jest zapisywana do bazy, dziala tylko w biezacej
+     * sesji, tak jak w wiekszosci odtwarzaczy wideo. Zakres 0,1-10x jest szerszy
+     * niz typowy suwak "0,5-2x" celowo - to co uzytkownik chce, to jego sprawa.
+     */
+    fun setPlaybackSpeed(speed: Float) {
+        _controller.value?.setPlaybackSpeed(speed.coerceIn(0.1f, 10f))
+    }
+
+    /** Aktualna predkosc - punkt startowy dla suwaka i to, do czego wraca "przytrzymaj, by 2x". */
+    fun currentSpeed(): Float = _controller.value?.playbackParameters?.speed ?: 1f
+
     fun togglePlayPause() {
         val controller = _controller.value ?: return
         if (controller.isPlaying) controller.pause() else controller.play()

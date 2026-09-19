@@ -34,6 +34,8 @@ data class PlayerUiState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val loop: LoopSettings = LoopSettings.Default,
+    /** Mnożnik prędkości - żywy, sesyjny; nie ma odpowiednika w bazie. */
+    val speed: Float = 1f,
     val error: String? = null,
 )
 
@@ -69,6 +71,7 @@ fun rememberPlayerState(): PlayerUiState {
                 positionMs = player.currentPosition.coerceAtLeast(0L),
                 durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L,
                 loop = item.loopSettings(),
+                speed = player.playbackParameters.speed,
                 error = error,
             )
         }
