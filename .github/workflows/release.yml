@@ -38,6 +38,12 @@ jobs:
           mkdir -p ~/.android
           echo "$KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
 
+          # Dowod w logach, ze plik jest ten, ktory mial byc - zeby cicha
+          # niezgodnosc podpisu (i skasowane playlisty przy update) nigdy wiecej
+          # nie przeszla niezauwazona.
+          echo "Odcisk klucza w tym buildzie:"
+          keytool -list -v -keystore ~/.android/debug.keystore -storepass android -keypass android 2>&1 | grep SHA256
+
       - name: Zbuduj APK
         run: gradle assembleRelease --no-daemon
 

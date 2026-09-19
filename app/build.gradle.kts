@@ -9,14 +9,30 @@ android {
     namespace = "com.loopa.app"
     compileSdk = 35
 
+    signingConfigs {
+        // AGP domyslnie sam wyszukuje debug.keystore, ale gdzie dokladnie szuka
+        // zalezy od zmiennych srodowiskowych (ANDROID_SDK_HOME / ANDROID_USER_HOME),
+        // ktore na hostowanych maszynach GitHuba wskazuja gdzie indziej niz na tym
+        // komputerze. Efekt: apka z CI byla podpisana zupelnie innym kluczem niz
+        // lokalna, mimo poprawnie odtworzonego pliku - a to zrywa aktualizacje
+        // "po wierzchu" i kasuje playlisty. Wskazujemy plik jawnie, wiec obie
+        // strony (lokalnie i w CI) uzywaja dokladnie tego samego keystore'u.
+        getByName("debug") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.loopa.app"
         minSdk = 26
         targetSdk = 35
         // Podbijane przy kazdym wydaniu - Android odmawia instalacji "po wierzchu",
         // gdy nowy plik ma nizszy kod wersji niz zainstalowany.
-        versionCode = 4
-        versionName = "1.3"
+        versionCode = 5
+        versionName = "1.3.1"
     }
 
     buildTypes {
