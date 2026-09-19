@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
+import java.nio.charset.StandardCharsets
 
 /**
  * Opis nowej wersji. Adres aktualizacji moze wskazywac albo wprost na plik APK,
@@ -26,6 +27,25 @@ data class UpdateInfo(
     val apkUrl: String,
     val notes: String? = null,
 )
+
+/**
+ * Wynik proby odczytania wersji spod podanego adresu.
+ *
+ * Rozroznienie [NotAManifest] od [Error] jest kluczowe: pierwsze znaczy "ten
+ * adres to po prostu goly plik APK, sciagaj go wprost", drugie znaczy "adres
+ * wygladal na manifest/GitHuba, ale cos poszło nie tak przy jego czytaniu -
+ * NIE probuj sciagac go jako pliku, bo to i tak nie jest binarka".
+ *
+ * Wczesniejsza wersja myliła te dwa przypadki: gdy odczyt manifestu padal z
+ * jakiegokolwiek powodu, kod po cichu probowal sciagnac jako APK adres do
+ * danych JSON - co zawsze konczylo sie tym samym mylacym komunikatem
+ * "pobrany plik nie jest APK", niezaleznie od prawdziwej przyczyny.
+ */
+sealed interface InfoResult {
+    data class Resolved(val info: UpdateInfo) : InfoResult
+    data class Error(val message: String) : InfoResult
+    data object NotAManifest : InfoResult
+}
 
 sealed interface UpdateState {
     data object Idle : UpdateState
@@ -57,15 +77,21 @@ class Updater(private val context: Context) {
      * Ten drugi jest wygodniejszy: adres wpisujesz raz i nigdy go nie zmieniasz,
      * bo GitHub sam pokazuje najnowsze wydanie.
      */
-    suspend fun fetchInfo(url: String): UpdateInfo? = withContext(Dispatchers.IO) {
+    suspend fun fetchInfo(url: String): InfoResult = withContext(Dispatchers.IO) {
         val isGitHub = url.contains("api.github.com") && url.contains("/releases/")
-        if (!isGitHub && !url.endsWith(".json", ignoreCase = true)) return@withContext null
+        if (!isGitHub && !url.endsWith(".json", ignoreCase = true)) {
+            return@withContext InfoResult.NotAManifest
+        }
 
-        runCatching {
-            val body = get(url) ?: return@runCatching null
+        try {
+            val body = get(url)
             val json = JSONObject(body)
-            if (isGitHub) parseGitHubRelease(json) else parseManifest(json)
-        }.getOrNull()
+            val info = if (isGitHub) parseGitHubRelease(json) else parseManifest(json)
+            info?.let { InfoResult.Resolved(it) }
+                ?: InfoResult.Error("Wydanie na GitHubie nie ma dołączonego pliku APK.")
+        } catch (e: Exception) {
+            InfoResult.Error(describeFailure(e))
+        }
     }
 
     private fun parseManifest(json: JSONObject) = UpdateInfo(
@@ -94,7 +120,7 @@ class Updater(private val context: Context) {
         // Numer wersji trzymamy w osobnym pliczku dolaczonym do wydania - sama
         // nazwa taga nie wystarcza, bo Android porownuje wersje po liczbie.
         manifestUrl?.let { url ->
-            runCatching { parseManifest(JSONObject(get(url).orEmpty())) }
+            runCatching { parseManifest(JSONObject(get(url))) }
                 .getOrNull()
                 ?.let { return it }
         }
@@ -109,13 +135,19 @@ class Updater(private val context: Context) {
         )
     }
 
-    private fun get(url: String): String? = runCatching {
+    /** Zwraca cialo odpowiedzi albo rzuca z opisowym komunikatem - nigdy null po cichu. */
+    private fun get(url: String): String {
         val request = Request.Builder().url(url)
             .header("User-Agent", Net.DESKTOP_UA)
             .header("Accept", "application/vnd.github+json")
             .build()
-        Net.client.newCall(request).execute().use { it.body?.string() }
-    }.getOrNull()
+        Net.client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw java.io.IOException("Serwer odpowiedział ${response.code} dla $url")
+            }
+            return response.body?.string() ?: throw java.io.IOException("Pusta odpowiedź z $url")
+        }
+    }
 
     suspend fun download(url: String, onProgress: (Float) -> Unit): Result<File> =
         withContext(Dispatchers.IO) {
@@ -124,9 +156,14 @@ class Updater(private val context: Context) {
                 val target = File(dir, "loopa-update.apk")
                 if (target.exists()) target.delete()
 
+                var statusCode = -1
+                var contentType: String? = null
+
                 val request = Request.Builder().url(url).header("User-Agent", Net.DESKTOP_UA).build()
                 Net.client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) error("Serwer odpowiedział ${response.code}")
+                    statusCode = response.code
+                    contentType = response.header("Content-Type")
+                    if (!response.isSuccessful) error("Serwer odpowiedział $statusCode")
                     val body = response.body ?: error("Pusta odpowiedź serwera")
                     val total = body.contentLength()
 
@@ -148,17 +185,36 @@ class Updater(private val context: Context) {
                 // Najtansza sensowna kontrola: APK to archiwum ZIP, wiec zaczyna sie
                 // od "PK". Strona bledu albo przekierowanie zapisane jako plik odpadnie
                 // tutaj, zamiast wywalic sie dopiero w instalatorze.
-                target.inputStream().use { stream ->
-                    val magic = ByteArray(2)
-                    if (stream.read(magic) != 2 || magic[0] != 'P'.code.toByte() || magic[1] != 'K'.code.toByte()) {
-                        target.delete()
-                        error("Pobrany plik nie jest APK - sprawdź adres aktualizacji")
-                    }
+                val magic = target.inputStream().use { stream ->
+                    ByteArray(2).also { buf -> stream.read(buf) }
+                }
+                if (magic.size != 2 || magic[0] != 'P'.code.toByte() || magic[1] != 'K'.code.toByte()) {
+                    // Diagnostyka zamiast zgadywania: pokaz co naprawde przyszlo z
+                    // sieci - pierwsze bajty jako tekst zwykle zdradzaja, czy to
+                    // strona bledu, JSON, czy cos zupelnie innego.
+                    val preview = runCatching {
+                        target.inputStream().use { it.readNBytes(200) }
+                            .toString(StandardCharsets.UTF_8)
+                            .filter { it.code in 32..126 || it == '\n' }
+                            .take(160)
+                    }.getOrDefault("")
+                    target.delete()
+                    error(
+                        "Pobrany plik nie jest APK (HTTP $statusCode, typ: ${contentType ?: "?"}). " +
+                            "Początek odpowiedzi: ${preview.ifBlank { "(pusto)" }}"
+                    )
                 }
 
                 target
             }
         }
+
+    private fun describeFailure(e: Exception): String = when (e) {
+        is java.net.UnknownHostException -> "Nie mogę znaleźć serwera - sprawdź połączenie z siecią."
+        is java.net.SocketTimeoutException -> "Serwer nie odpowiedział na czas."
+        is org.json.JSONException -> "Odpowiedź serwera nie jest poprawnym JSON-em (${e.message})."
+        else -> e.message ?: e::class.simpleName ?: "Nieznany błąd"
+    }
 
     fun canInstall(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()

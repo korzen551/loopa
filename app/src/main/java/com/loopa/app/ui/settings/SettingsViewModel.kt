@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.loopa.app.LoopaApp
 import com.loopa.app.data.Prefs
+import com.loopa.app.update.InfoResult
+import com.loopa.app.update.UpdateInfo
 import com.loopa.app.update.UpdateState
 import com.loopa.app.update.Updater
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,13 +56,27 @@ class SettingsViewModel(private val app: LoopaApp) : ViewModel() {
         _state.value = UpdateState.Checking
         // Adres moze wskazywac na manifest JSON - wtedy da sie sprawdzic wersje
         // przed pobraniem calego pliku. Zwykly link do APK po prostu pobieramy.
-        val info = updater.fetchInfo(url)
+        //
+        // Rozroznienie ponizej jest celowe: adres, ktory WYGLADA na manifest/
+        // endpoint GitHuba, ale nie dal sie odczytac, NIE ma prawa wyladowac
+        // jako "sciagnij to doslownie jako plik" - to gwarantowana porazka
+        // (pobralby JSON zamiast APK) i mylacy komunikat bez prawdziwej przyczyny.
+        when (val result = updater.fetchInfo(url)) {
+            is InfoResult.Error -> {
+                _state.value = UpdateState.Failed("Nie udało się odczytać wersji: ${result.message}")
+                return@launch
+            }
+            is InfoResult.Resolved -> downloadAndInstall(result.info.apkUrl, result.info)
+            InfoResult.NotAManifest -> downloadAndInstall(url, null)
+        }
+    }
+
+    private fun downloadAndInstall(apkUrl: String, info: UpdateInfo?) = viewModelScope.launch {
         if (info != null && info.versionCode in 1..installedCode) {
             _state.value = UpdateState.UpToDate(info.versionName)
             return@launch
         }
 
-        val apkUrl = info?.apkUrl ?: url
         _state.value = UpdateState.Downloading(0f)
         updater.download(apkUrl) { progress ->
             _state.value = UpdateState.Downloading(progress)
