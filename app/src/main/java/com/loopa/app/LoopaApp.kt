@@ -7,6 +7,7 @@ import com.loopa.app.data.LibraryRepository
 import com.loopa.app.resolve.Net
 import com.loopa.app.resolve.NewPipeDownloader
 import com.loopa.app.resolve.ResolverRegistry
+import kotlinx.coroutines.launch
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
@@ -36,6 +37,16 @@ class LoopaApp : Application() {
             Localization("pl", "PL"),
             ContentCountry("PL"),
         )
+
+        // Po starcie sprzatamy powiazania z pobranymi plikami: niepelne kopie
+        // przestaja zastepowac zrodlo, a kopie skasowane z galerii przestaja
+        // udawac, ze nadal sa. Naprawia to takze filmy zepsute przez
+        // wczesniejsza wersje.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            runCatching {
+                com.loopa.app.download.LibraryRepair(repository, gallery).run()
+            }
+        }
     }
 }
 

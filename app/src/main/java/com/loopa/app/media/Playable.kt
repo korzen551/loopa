@@ -34,12 +34,14 @@ object PlayUri {
     private const val SCHEME = "loopa"
 
     /**
-     * Pobrana kopia wygrywa z sieciowa: gdy film lezy juz w galerii, odtwarzamy
-     * plik z dysku. To cala obsluga trybu offline - reszta lancucha nie musi
-     * nawet wiedziec, ze cos sie zmienilo.
+     * Kopia z dysku zastepuje strumien tylko wtedy, gdy obejmuje CALY film.
+     *
+     * Fragment wyciety do galerii (np. minuta z trzygodzinnego nagrania) zostaje
+     * fragmentem w galerii - w apce ten film nadal ma lecec w calosci, tak jak
+     * u zrodla.
      */
     fun forTrack(track: Track): Uri =
-        track.localUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
+        track.localUri?.takeIf { track.hasFullLocalCopy }?.let(Uri::parse)
             ?: Uri.Builder()
                 .scheme(SCHEME)
                 .authority("play")

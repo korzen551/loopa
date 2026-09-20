@@ -80,7 +80,7 @@ fun SavePlaylistScreen(
     }
     val state by vm.state.collectAsStateWithLifecycle()
     val selected by vm.selected.collectAsStateWithLifecycle()
-    val limits by vm.limits.collectAsStateWithLifecycle()
+    val trims by vm.trims.collectAsStateWithLifecycle()
     val downloadState by vm.downloadState.collectAsStateWithLifecycle()
 
     var editing by remember { mutableStateOf<PlaylistEntry?>(null) }
@@ -154,7 +154,7 @@ fun SavePlaylistScreen(
                         SelectableVideoCard(
                             entry = entry,
                             isSelected = entry.item.id in selected,
-                            limitMs = limits[entry.item.id] ?: 0L,
+                            trim = trims[entry.item.id] ?: Trim(),
                             onToggle = { vm.toggle(entry.item.id) },
                             onEdit = {
                                 vm.preview(entry)
@@ -168,10 +168,12 @@ fun SavePlaylistScreen(
     }
 
     editing?.let { entry ->
+        val trim = vm.trimFor(entry.item.id)
         TrimPreviewSheet(
             entry = entry,
-            limitMs = vm.limitFor(entry.item.id),
-            onLimitChange = { vm.setLimit(entry.item.id, it) },
+            startMs = trim.startMs,
+            endMs = trim.endMs,
+            onChange = { s, e -> vm.setTrim(entry.item.id, s, e) },
             onDismiss = { editing = null },
         )
     }
@@ -200,7 +202,7 @@ fun SavePlaylistScreen(
 private fun SelectableVideoCard(
     entry: PlaylistEntry,
     isSelected: Boolean,
-    limitMs: Long,
+    trim: Trim,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -259,8 +261,9 @@ private fun SelectableVideoCard(
             }
 
             Text(
-                text = if (limitMs > 0L) {
-                    "${formatTime(limitMs)} z ${formatTime(entry.track.durationMs)}"
+                text = if (!trim.isWholeVideo) {
+                    val end = if (trim.endMs > 0L) trim.endMs else entry.track.durationMs
+                    "${formatTime((end - trim.startMs).coerceAtLeast(0L))} z ${formatTime(entry.track.durationMs)}"
                 } else {
                     formatTime(entry.track.durationMs)
                 },

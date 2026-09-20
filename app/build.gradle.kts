@@ -31,8 +31,8 @@ android {
         targetSdk = 35
         // Podbijane przy kazdym wydaniu - Android odmawia instalacji "po wierzchu",
         // gdy nowy plik ma nizszy kod wersji niz zainstalowany.
-        versionCode = 8
-        versionName = "1.5"
+        versionCode = 9
+        versionName = "1.6"
     }
 
     buildTypes {

@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Speed
@@ -221,13 +220,10 @@ fun FeedScreen(
                 vm.loadAlbums()
                 showDownload = true
             }) {
-                // Strzalka w dol = pobierz; z ptaszkiem, gdy kopia juz lezy w galerii.
-                val downloaded = state.entries.getOrNull(pagerState.settledPage)?.track?.isDownloaded == true
-                Icon(
-                    imageVector = if (downloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
-                    contentDescription = if (downloaded) "Pobrane" else "Pobierz",
-                    tint = if (downloaded) MaterialTheme.colorScheme.primary else Color.White,
-                )
+                // Zawsze zwykla strzalka. Bez oznaczenia "juz pobrane", bo apka
+                // nie ma jak wiedziec, czy plik nadal lezy w galerii - a kazdy
+                // zapis i tak ma tworzyc nowa kopie, ile razy zechcesz.
+                Icon(Icons.Filled.Download, contentDescription = "Pobierz", tint = Color.White)
             }
             IconButton(onClick = { showSpeed = true }) {
                 Icon(Icons.Filled.Speed, contentDescription = "Szybkość", tint = Color.White)
@@ -290,8 +286,8 @@ fun FeedScreen(
             durationMs = if (player.durationMs > 0) player.durationMs else currentEntry.track.durationMs,
             albums = albums,
             albumsLoading = albumsLoading,
-            onConfirm = { album, limitMs ->
-                vm.download(currentEntry, album, limitMs)
+            onConfirm = { album, startMs, endMs ->
+                vm.download(currentEntry, album, startMs, endMs)
                 showDownload = false
             },
             onDismiss = { showDownload = false },

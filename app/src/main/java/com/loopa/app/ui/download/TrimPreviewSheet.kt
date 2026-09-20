@@ -67,13 +67,15 @@ import com.loopa.app.ui.player.rememberPlayerState
 @Composable
 fun TrimPreviewSheet(
     entry: PlaylistEntry,
-    limitMs: Long,
-    onLimitChange: (Long) -> Unit,
+    startMs: Long,
+    endMs: Long,
+    onChange: (startMs: Long, endMs: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val player = rememberPlayerState()
-    var current by remember(entry.item.id) { mutableLongStateOf(limitMs) }
+    var curStart by remember(entry.item.id) { mutableLongStateOf(startMs) }
+    var curEnd by remember(entry.item.id) { mutableLongStateOf(endMs) }
 
     val isThisTrack = player.trackId == entry.track.id
     val duration = if (isThisTrack && player.durationMs > 0) player.durationMs else entry.track.durationMs
@@ -143,10 +145,12 @@ fun TrimPreviewSheet(
             Spacer(Modifier.height(16.dp))
             TrimControl(
                 durationMs = duration,
-                limitMs = current,
-                onLimitChange = {
-                    current = it
-                    onLimitChange(it)
+                startMs = curStart,
+                endMs = curEnd,
+                onChange = { s, e ->
+                    curStart = s
+                    curEnd = e
+                    onChange(s, e)
                 },
             )
 

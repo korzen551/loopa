@@ -1,4 +1,13 @@
-name: Build APK
+name: Sprawdz kompilacje
+
+# Szybka kontrola przy kazdym wypchnieciu: czy kod sie w ogole kompiluje.
+#
+# Celowo NIE budujemy tu gotowego pakietu. Gotowy pakiet musi byc podpisany
+# tym samym kluczem co zainstalowana apka, a klucz siedzi w sekrecie uzywanym
+# tylko przez przeplyw wydania. Probowanie tego tutaj konczylo sie czerwonym
+# krzyzykiem przy kazdym commicie - albo, co gorsza przed poprawka, po cichu
+# produkowalo plik z losowym kluczem, ktorego nie dalo sie zainstalowac
+# "po wierzchu". Wydania robi release.yml, uruchamiany tagiem.
 
 on:
   push:
@@ -6,7 +15,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  compile:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,17 +25,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Gradle instalowany przez akcje - w repo nie ma wrappera (gradle-wrapper.jar
-      # to plik binarny, wiec nie jest tu trzymany).
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build release APK
-        run: gradle assembleRelease --no-daemon
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: loopa-apk
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
+      - name: Kompilacja
+        run: gradle compileReleaseKotlin --no-daemon

@@ -24,6 +24,11 @@ data class SavePlaylistState(
     val entries: List<PlaylistEntry> = emptyList(),
 )
 
+/** Fragment filmu do zapisania. [endMs] rowne 0 znaczy "do konca". */
+data class Trim(val startMs: Long = 0L, val endMs: Long = 0L) {
+    val isWholeVideo: Boolean get() = startMs == 0L && endMs == 0L
+}
+
 /**
  * Zapis wielu filmow z playlisty naraz.
  *
@@ -45,9 +50,9 @@ class SavePlaylistViewModel(private val app: LoopaApp, playlistId: Long) : ViewM
     private val _selected = MutableStateFlow<Set<Long>>(emptySet())
     val selected: StateFlow<Set<Long>> = _selected.asStateFlow()
 
-    /** Ile z danego filmu zapisac; brak wpisu = calosc. */
-    private val _limits = MutableStateFlow<Map<Long, Long>>(emptyMap())
-    val limits: StateFlow<Map<Long, Long>> = _limits.asStateFlow()
+    /** Fragment do zapisania dla danego wpisu; brak wpisu = caly film. */
+    private val _trims = MutableStateFlow<Map<Long, Trim>>(emptyMap())
+    val trims: StateFlow<Map<Long, Trim>> = _trims.asStateFlow()
 
     private val _albums = MutableStateFlow<List<GalleryAlbum>>(emptyList())
     val albums: StateFlow<List<GalleryAlbum>> = _albums.asStateFlow()
@@ -82,13 +87,14 @@ class SavePlaylistViewModel(private val app: LoopaApp, playlistId: Long) : ViewM
         _selected.value = emptySet()
     }
 
-    fun setLimit(itemId: Long, limitMs: Long) {
-        _limits.value = _limits.value.toMutableMap().apply {
-            if (limitMs <= 0L) remove(itemId) else put(itemId, limitMs)
+    fun setTrim(itemId: Long, startMs: Long, endMs: Long) {
+        val trim = Trim(startMs, endMs)
+        _trims.value = _trims.value.toMutableMap().apply {
+            if (trim.isWholeVideo) remove(itemId) else put(itemId, trim)
         }
     }
 
-    fun limitFor(itemId: Long): Long = _limits.value[itemId] ?: 0L
+    fun trimFor(itemId: Long): Trim = _trims.value[itemId] ?: Trim()
 
     fun loadAlbums() = viewModelScope.launch {
         if (_albums.value.isNotEmpty()) return@launch
@@ -107,10 +113,12 @@ class SavePlaylistViewModel(private val app: LoopaApp, playlistId: Long) : ViewM
         val jobs = state.value.entries
             .filter { it.item.id in chosen }
             .map { entry ->
+                val trim = trimFor(entry.item.id)
                 DownloadJob(
                     trackId = entry.track.id,
                     title = entry.track.title,
-                    limitMs = limitFor(entry.item.id),
+                    startMs = trim.startMs,
+                    endMs = trim.endMs,
                     album = album,
                 )
             }

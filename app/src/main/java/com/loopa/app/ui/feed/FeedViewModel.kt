@@ -119,13 +119,14 @@ class FeedViewModel(private val app: LoopaApp, private val playlistId: Long) : V
         _albumsLoading.value = false
     }
 
-    fun download(entry: PlaylistEntry, album: GalleryAlbum, limitMs: Long) {
+    fun download(entry: PlaylistEntry, album: GalleryAlbum, startMs: Long, endMs: Long) {
         app.downloads.enqueue(
             listOf(
                 DownloadJob(
                     trackId = entry.track.id,
                     title = entry.track.title,
-                    limitMs = limitMs,
+                    startMs = startMs,
+                    endMs = endMs,
                     album = album,
                 )
             )

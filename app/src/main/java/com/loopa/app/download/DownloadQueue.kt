@@ -14,12 +14,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/** Jedno zadanie: film + ile z niego pobrac + gdzie w galerii ma wyladowac. */
+/** Jedno zadanie: film, wycinany fragment i miejsce w galerii. */
 data class DownloadJob(
     val trackId: String,
     val title: String,
-    /** 0 = caly film. */
-    val limitMs: Long,
+    /** Ile odciac z poczatku. */
+    val startMs: Long,
+    /** Gdzie skonczyc; 0 = do konca filmu. */
+    val endMs: Long,
     val album: GalleryAlbum,
 )
 
@@ -109,12 +111,13 @@ class DownloadQueue(
     private suspend fun process(job: DownloadJob, onProgress: (Float) -> Unit) {
         val track = repository.track(job.trackId) ?: error("Film zniknął z biblioteki")
 
-        val file = downloader.export(track, job.limitMs, onProgress).getOrThrow()
+        val file = downloader.export(track, job.startMs, job.endMs, onProgress).getOrThrow()
         try {
             val target = gallery.createPending(track.title.ifBlank { track.id }, job.album)
                 ?: error("Galeria odmówiła utworzenia pliku")
 
-            val effectiveDuration = if (job.limitMs > 0L) job.limitMs else track.durationMs
+            val end = if (job.endMs > 0L) job.endMs else track.durationMs
+            val effectiveDuration = (end - job.startMs).coerceAtLeast(0L)
             val published = gallery.writeAndPublish(target, file, effectiveDuration)
             if (!published) error("Nie udało się zapisać pliku w galerii")
 

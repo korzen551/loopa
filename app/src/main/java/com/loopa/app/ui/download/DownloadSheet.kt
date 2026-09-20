@@ -53,12 +53,13 @@ fun DownloadSheet(
     durationMs: Long,
     albums: List<GalleryAlbum>,
     albumsLoading: Boolean,
-    onConfirm: (album: GalleryAlbum, limitMs: Long) -> Unit,
+    onConfirm: (album: GalleryAlbum, startMs: Long, endMs: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selected by remember(albums) { mutableStateOf(albums.firstOrNull() ?: GalleryAlbum.Default) }
-    var limitMs by remember { mutableLongStateOf(0L) }
+    var startMs by remember { mutableLongStateOf(0L) }
+    var endMs by remember { mutableLongStateOf(0L) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -80,8 +81,9 @@ fun DownloadSheet(
             Spacer(Modifier.height(16.dp))
             TrimControl(
                 durationMs = durationMs,
-                limitMs = limitMs,
-                onLimitChange = { limitMs = it },
+                startMs = startMs,
+                endMs = endMs,
+                onChange = { s, e -> startMs = s; endMs = e },
             )
 
             Spacer(Modifier.height(16.dp))
@@ -147,7 +149,7 @@ fun DownloadSheet(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Anuluj") }
                 Button(
-                    onClick = { onConfirm(selected, limitMs) },
+                    onClick = { onConfirm(selected, startMs, endMs) },
                     enabled = !albumsLoading,
                     modifier = Modifier.weight(1f),
                 ) { Text("Pobierz") }

@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
+import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,17 +27,22 @@ import com.loopa.app.ui.common.formatTime
 import java.util.Locale
 
 /**
- * Czyta czas wpisany recznie. Czyta od prawej: ostatnia liczba to sekundy,
- * przed nia minuty, przed nimi godziny. Kropka i dwukropek znacza to samo.
+ * Czyta czas wpisany recznie. Podstawowa jednostka to SEKUNDY, a kazda kolejna
+ * kropka przesuwa znaczenie o jeden rzad w gore:
  *
- * "30.21"     -> 30 min 21 s
- * "1.20.30"   -> 1 h 20 min 30 s
- * "45"        -> 45 s
+ *   "4"        -> 4 sekundy
+ *   "4.51"     -> 4 minuty 51 sekund
+ *   "4.51.20"  -> 4 godziny 51 minut 20 sekund
+ *
+ * Czyli liczby czytamy od prawej: ostatnia to sekundy, przed nia minuty,
+ * przed nimi godziny.
  */
 fun parseDurationInput(raw: String): Long? {
-    val parts = raw.trim().split('.', ':', ',').filter { it.isNotBlank() }
+    val parts = raw.trim().split('.', ':', ',').map { it.trim() }
     if (parts.isEmpty() || parts.size > 3) return null
-    val numbers = parts.map { it.trim().toIntOrNull() ?: return null }
+    if (parts.any { it.isEmpty() }) return null
+
+    val numbers = parts.map { it.toIntOrNull() ?: return null }
     if (numbers.any { it < 0 }) return null
 
     val seconds = when (numbers.size) {
@@ -48,46 +53,63 @@ fun parseDurationInput(raw: String): Long? {
     return seconds * 1000L
 }
 
-/** Odwrotnosc [parseDurationInput] - do wypelnienia pola po ruchu suwakiem. */
+/**
+ * Odwrotnosc [parseDurationInput] - pokazuje najkrotszy zapis, ktory da sie
+ * wpisac z powrotem. 40 sekund to "40", a nie mylace "0.40".
+ */
 fun formatDurationInput(ms: Long): String {
     val total = (ms / 1000).coerceAtLeast(0)
     val h = total / 3600
     val m = (total % 3600) / 60
     val s = total % 60
-    return if (h > 0) {
-        String.format(Locale.US, "%d.%02d.%02d", h, m, s)
-    } else {
-        String.format(Locale.US, "%d.%02d", m, s)
+    return when {
+        h > 0 -> String.format(Locale.US, "%d.%02d.%02d", h, m, s)
+        m > 0 -> String.format(Locale.US, "%d.%02d", m, s)
+        else -> s.toString()
     }
 }
 
 /**
- * Wybor, ile z filmu zapisac: suwak plus pole do wpisania dokladnej wartosci.
- * Obie kontrolki pokazuja to samo i nawzajem sie aktualizuja.
+ * Wybor fragmentu filmu do zapisania - dwa ciecia, od poczatku i od konca.
  *
- * [limitMs] rowne 0 oznacza caly film.
+ * [endMs] rowne 0 znaczy "do samego konca filmu".
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrimControl(
     durationMs: Long,
-    limitMs: Long,
-    onLimitChange: (Long) -> Unit,
+    startMs: Long,
+    endMs: Long,
+    onChange: (startMs: Long, endMs: Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val known = durationMs > 0L
-    val effective = if (limitMs > 0L) limitMs else durationMs
-    var typed by remember(limitMs, durationMs) { mutableStateOf(formatDurationInput(effective)) }
-    var error by remember { mutableStateOf(false) }
+    val effectiveEnd = if (endMs > 0L) endMs else durationMs
+
+    // KLUCZOWE: pola tekstowe nie moga byc zerowane przy kazdej zmianie wartosci,
+    // bo wtedy kasuja to, co wlasnie wpisujesz. Dlatego kluczem jest wylacznie
+    // dlugosc filmu (stala dla danego klipu), a nie biezace ciecia. Suwak
+    // aktualizuje teksty jawnie, wiec i tak zostaja zgodne.
+    var startText by remember(durationMs) { mutableStateOf(formatDurationInput(startMs)) }
+    var endText by remember(durationMs) { mutableStateOf(formatDurationInput(effectiveEnd)) }
+    var startError by remember { mutableStateOf(false) }
+    var endError by remember { mutableStateOf(false) }
+
+    fun push(newStart: Long, newEnd: Long) {
+        val safeStart = newStart.coerceIn(0L, (durationMs - 1000L).coerceAtLeast(0L))
+        val safeEnd = newEnd.coerceIn(safeStart + 1000L, durationMs)
+        onChange(safeStart, if (safeEnd >= durationMs) 0L else safeEnd)
+    }
 
     Column(modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = "Zapisz pierwsze",
+                text = "Fragment do zapisania",
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier.weight(1f),
             )
             Text(
-                text = formatTime(effective),
+                text = formatTime((effectiveEnd - startMs).coerceAtLeast(0L)),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -103,56 +125,86 @@ fun TrimControl(
             return@Column
         }
 
-        Slider(
-            value = effective.toFloat().coerceIn(0f, durationMs.toFloat()),
-            onValueChange = {
-                error = false
-                val value = it.toLong().coerceIn(1000L, durationMs)
-                typed = formatDurationInput(value)
-                onLimitChange(if (value >= durationMs) 0L else value)
+        RangeSlider(
+            value = startMs.toFloat()..effectiveEnd.toFloat().coerceAtLeast(startMs.toFloat() + 1000f),
+            onValueChange = { range ->
+                startError = false
+                endError = false
+                val newStart = range.start.toLong()
+                val newEnd = range.endInclusive.toLong()
+                startText = formatDurationInput(newStart)
+                endText = formatDurationInput(newEnd)
+                push(newStart, newEnd)
             },
             valueRange = 0f..durationMs.toFloat(),
         )
 
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = typed,
+                value = startText,
                 onValueChange = { text ->
-                    typed = text
+                    startText = text
                     val parsed = parseDurationInput(text)
-                    if (parsed == null || parsed <= 0L) {
-                        error = text.isNotBlank()
+                    if (parsed == null) {
+                        startError = text.isNotBlank()
                     } else {
-                        error = false
-                        val clamped = parsed.coerceAtMost(durationMs)
-                        onLimitChange(if (clamped >= durationMs) 0L else clamped)
+                        startError = false
+                        push(parsed, effectiveEnd)
                     }
                 },
-                label = { Text("min.sek") },
-                isError = error,
+                label = { Text("Od") },
+                isError = startError,
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.width(140.dp),
+                modifier = Modifier.weight(1f),
             )
-            AssistChip(
-                onClick = {
-                    error = false
-                    typed = formatDurationInput(durationMs)
-                    onLimitChange(0L)
+            OutlinedTextField(
+                value = endText,
+                onValueChange = { text ->
+                    endText = text
+                    val parsed = parseDurationInput(text)
+                    if (parsed == null) {
+                        endError = text.isNotBlank()
+                    } else {
+                        endError = false
+                        push(startMs, parsed)
+                    }
                 },
-                label = { Text("Całość") },
+                label = { Text("Do") },
+                isError = endError,
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.weight(1f),
             )
         }
 
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
+        AssistChip(
+            onClick = {
+                startError = false
+                endError = false
+                startText = formatDurationInput(0L)
+                endText = formatDurationInput(durationMs)
+                onChange(0L, 0L)
+            },
+            label = { Text("Cały film") },
+        )
+
+        Spacer(Modifier.height(6.dp))
         Text(
-            text = if (error) {
-                "Nie rozumiem tego zapisu. Przykład: 30.21 to 30 minut i 21 sekund."
+            text = if (startError || endError) {
+                "Nie rozumiem tego zapisu. Sekundy: 40. Minuty i sekundy: 4.51. " +
+                    "Godziny, minuty i sekundy: 1.20.05."
             } else {
-                "Z filmu o długości ${formatTime(durationMs)} zapiszę pierwsze ${formatTime(effective)}."
+                "Z filmu o długości ${formatTime(durationMs)} zapiszę fragment od " +
+                    "${formatTime(startMs)} do ${formatTime(effectiveEnd)}."
             },
             style = MaterialTheme.typography.bodySmall,
-            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = if (startError || endError) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
         )
     }
 }

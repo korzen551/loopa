@@ -43,12 +43,14 @@ class VideoDownloader(
 ) {
 
     /**
-     * @param limitMs ile od poczatku filmu pobrac; 0 = calosc.
+     * @param startMs ile odciac z poczatku filmu.
+     * @param endMs gdzie skonczyc; 0 = do konca filmu.
      * @return plik tymczasowy gotowy do przelania do galerii.
      */
     suspend fun export(
         track: Track,
-        limitMs: Long,
+        startMs: Long,
+        endMs: Long,
         onProgress: (Float) -> Unit,
     ): Result<File> = runCatching {
         val link = LinkParser.parse(track.url)
@@ -68,11 +70,11 @@ class VideoDownloader(
         val mediaItem = MediaItem.Builder()
             .setUri(stream.url)
             .apply {
-                if (limitMs > 0L) {
+                if (startMs > 0L || endMs > 0L) {
                     setClippingConfiguration(
                         MediaItem.ClippingConfiguration.Builder()
-                            .setStartPositionMs(0L)
-                            .setEndPositionMs(limitMs)
+                            .setStartPositionMs(startMs.coerceAtLeast(0L))
+                            .apply { if (endMs > 0L) setEndPositionMs(endMs) }
                             .build()
                     )
                 }

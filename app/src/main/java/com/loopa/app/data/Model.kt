@@ -81,6 +81,24 @@ data class Track(
     @Embedded val loop: LoopSettings = LoopSettings.Default,
 ) {
     val isDownloaded: Boolean get() = !localUri.isNullOrBlank()
+
+    /**
+     * Czy lokalna kopia moze zastapic strumien przy odtwarzaniu w apce.
+     *
+     * TYLKO kopia calego filmu. Wyciecie minuty z trzygodzinnego nagrania jest
+     * po to, zeby miec ten fragment w galerii - a nie po to, zeby apka nagle
+     * znala ten film jako minutowy. Wczesniejsza wersja tego nie rozrozniala
+     * i przyciecie psulo film takze w samej apce.
+     */
+    val hasFullLocalCopy: Boolean
+        get() = !localUri.isNullOrBlank() &&
+            durationMs > 0L &&
+            localDurationMs >= durationMs - FULL_COPY_TOLERANCE_MS
+
+    companion object {
+        /** Przekodowanie potrafi zgubic ulamek sekundy - to nie znaczy "niepelna kopia". */
+        const val FULL_COPY_TOLERANCE_MS = 1_500L
+    }
 }
 
 @Entity(tableName = "playlists")
