@@ -8,10 +8,15 @@ import com.loopa.app.data.LoopSettings
 import com.loopa.app.data.Playlist
 import com.loopa.app.data.PlaylistEntry
 import com.loopa.app.data.effectiveLoop
+import com.loopa.app.download.DownloadJob
+import com.loopa.app.download.DownloadState
+import com.loopa.app.download.GalleryAlbum
 import com.loopa.app.media.PlayableItem
 import com.loopa.app.media.PlayerConnection
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -95,6 +100,39 @@ class FeedViewModel(private val app: LoopaApp, private val playlistId: Long) : V
         reloadQueue(currentIndex)
         PlayerConnection.restartCurrentLoop()
     }
+
+    // ---------- pobieranie do galerii ----------
+
+    val downloadState: StateFlow<DownloadState> = app.downloads.state
+
+    private val _albums = MutableStateFlow<List<GalleryAlbum>>(emptyList())
+    val albums: StateFlow<List<GalleryAlbum>> = _albums.asStateFlow()
+
+    private val _albumsLoading = MutableStateFlow(false)
+    val albumsLoading: StateFlow<Boolean> = _albumsLoading.asStateFlow()
+
+    /** Albumy czytamy dopiero przy otwarciu arkusza - to zapytanie do galerii. */
+    fun loadAlbums() = viewModelScope.launch {
+        if (_albums.value.isNotEmpty()) return@launch
+        _albumsLoading.value = true
+        _albums.value = runCatching { app.gallery.albums() }.getOrDefault(listOf(GalleryAlbum.Default))
+        _albumsLoading.value = false
+    }
+
+    fun download(entry: PlaylistEntry, album: GalleryAlbum, limitMs: Long) {
+        app.downloads.enqueue(
+            listOf(
+                DownloadJob(
+                    trackId = entry.track.id,
+                    title = entry.track.title,
+                    limitMs = limitMs,
+                    album = album,
+                )
+            )
+        )
+    }
+
+    fun acknowledgeDownload() = app.downloads.acknowledge()
 
     fun rememberDuration(trackId: String?, durationMs: Long) = viewModelScope.launch {
         if (trackId != null) repo.fillDuration(trackId, durationMs)

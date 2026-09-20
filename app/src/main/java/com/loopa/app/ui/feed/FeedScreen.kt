@@ -21,6 +21,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Speed
@@ -59,7 +61,10 @@ import com.loopa.app.data.effectivePlayCount
 import com.loopa.app.media.PlayerConnection
 import com.loopa.app.ui.appViewModel
 import com.loopa.app.ui.common.EmptyState
+import com.loopa.app.download.DownloadState
 import com.loopa.app.ui.common.formatTime
+import com.loopa.app.ui.download.DownloadProgressBar
+import com.loopa.app.ui.download.DownloadSheet
 import com.loopa.app.ui.player.LoopEditorSheet
 import com.loopa.app.ui.player.LoopScope
 import com.loopa.app.ui.player.rememberPlayerState
@@ -84,6 +89,7 @@ fun FeedScreen(
     var showLoopEditor by remember { mutableStateOf(false) }
     var showAutoAdvance by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showDownload by remember { mutableStateOf(false) }
 
     val pagerState = rememberPagerState(
         initialPage = startIndex,
@@ -176,6 +182,13 @@ fun FeedScreen(
             }
         }
 
+        val downloadState by vm.downloadState.collectAsStateWithLifecycle()
+        DownloadProgressBar(
+            state = downloadState,
+            onDismiss = { vm.acknowledgeDownload() },
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding(),
+        )
+
         Row(
             Modifier
                 .align(Alignment.TopStart)
@@ -202,6 +215,18 @@ fun FeedScreen(
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(end = 4.dp),
+                )
+            }
+            IconButton(onClick = {
+                vm.loadAlbums()
+                showDownload = true
+            }) {
+                // Strzalka w dol = pobierz; z ptaszkiem, gdy kopia juz lezy w galerii.
+                val downloaded = state.entries.getOrNull(pagerState.settledPage)?.track?.isDownloaded == true
+                Icon(
+                    imageVector = if (downloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
+                    contentDescription = if (downloaded) "Pobrane" else "Pobierz",
+                    tint = if (downloaded) MaterialTheme.colorScheme.primary else Color.White,
                 )
             }
             IconButton(onClick = { showSpeed = true }) {
@@ -255,6 +280,22 @@ fun FeedScreen(
                 onDismiss = { showAutoAdvance = false },
             )
         }
+    }
+
+    if (showDownload && currentEntry != null) {
+        val albums by vm.albums.collectAsStateWithLifecycle()
+        val albumsLoading by vm.albumsLoading.collectAsStateWithLifecycle()
+        DownloadSheet(
+            track = currentEntry.track,
+            durationMs = if (player.durationMs > 0) player.durationMs else currentEntry.track.durationMs,
+            albums = albums,
+            albumsLoading = albumsLoading,
+            onConfirm = { album, limitMs ->
+                vm.download(currentEntry, album, limitMs)
+                showDownload = false
+            },
+            onDismiss = { showDownload = false },
+        )
     }
 
     if (showSpeed) {

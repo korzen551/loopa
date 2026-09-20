@@ -53,7 +53,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(LoopaMediaSourceFactory(app.resolvers))
+            .setMediaSourceFactory(LoopaMediaSourceFactory(this, app.resolvers))
             .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()

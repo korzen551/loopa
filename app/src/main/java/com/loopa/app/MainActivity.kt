@@ -15,6 +15,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.NavType
 import com.loopa.app.media.PlayerConnection
+import com.loopa.app.ui.download.SavePlaylistScreen
 import com.loopa.app.ui.feed.FeedScreen
 import com.loopa.app.ui.library.LibraryScreen
 import com.loopa.app.ui.player.PlayerScreen
@@ -49,6 +50,16 @@ class MainActivity : ComponentActivity() {
                             onOpenPlaylist = { navController.navigate("playlist/$it") },
                             onOpenPlayer = { navController.navigate("player") },
                             onOpenSettings = { navController.navigate("settings") },
+                            onSavePlaylist = { navController.navigate("save/$it") },
+                        )
+                    }
+                    composable(
+                        route = "save/{playlistId}",
+                        arguments = listOf(navArgument("playlistId") { type = NavType.LongType }),
+                    ) { entry ->
+                        SavePlaylistScreen(
+                            playlistId = entry.arguments?.getLong("playlistId") ?: 0L,
+                            onBack = { navController.popBackStack() },
                         )
                     }
                     composable("settings") {

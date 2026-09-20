@@ -28,6 +28,16 @@ class LibraryRepository(
 
     suspend fun track(id: String): Track? = tracks.byId(id)
     suspend fun allTracksOnce(): List<Track> = tracks.all()
+    suspend fun downloadedTracks(): List<Track> = tracks.downloaded()
+
+    // ---------- kopie offline ----------
+
+    /** Zapamietuje, gdzie w galerii wyladowal pobrany plik i ile z filmu obejmuje. */
+    suspend fun setLocalCopy(trackId: String, uri: String?, durationMs: Long) =
+        tracks.setLocalCopy(trackId, uri, durationMs)
+
+    /** Film zniknal z galerii (uzytkownik go skasowal) - wracamy do streamowania. */
+    suspend fun forgetLocalCopy(trackId: String) = tracks.setLocalCopy(trackId, null, 0L)
     suspend fun entries(playlistId: Long): List<PlaylistEntry> = items.entries(playlistId)
     suspend fun entry(itemId: Long): PlaylistEntry? = items.entry(itemId)
     suspend fun playlistIdsFor(trackId: String): List<Long> = items.playlistIdsFor(trackId)

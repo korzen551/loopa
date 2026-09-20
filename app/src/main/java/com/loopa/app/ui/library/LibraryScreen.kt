@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Settings
@@ -71,6 +72,7 @@ fun LibraryScreen(
     onOpenPlaylist: (Long) -> Unit,
     onOpenPlayer: () -> Unit,
     onOpenSettings: () -> Unit,
+    onSavePlaylist: (Long) -> Unit,
 ) {
     val vm: LibraryViewModel = appViewModel { LibraryViewModel(it) }
     val playlists by vm.playlists.collectAsStateWithLifecycle()
@@ -133,6 +135,7 @@ fun LibraryScreen(
                         entry = entry,
                         onClick = { onOpenPlaylist(entry.playlist.id) },
                         onDelete = { vm.deletePlaylist(entry.playlist.id) },
+                        onSave = { onSavePlaylist(entry.playlist.id) },
                     )
                 }
 
@@ -208,6 +211,7 @@ private fun PlaylistRow(
     entry: PlaylistWithCount,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    onSave: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
     Row(
@@ -232,6 +236,11 @@ private fun PlaylistRow(
                 Icon(Icons.Filled.MoreVert, contentDescription = "Więcej")
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                DropdownMenuItem(
+                    text = { Text("Zapisz playlistę") },
+                    leadingIcon = { Icon(Icons.Filled.Download, null) },
+                    onClick = { menu = false; onSave() },
+                )
                 DropdownMenuItem(
                     text = { Text("Usuń playlistę") },
                     onClick = { menu = false; onDelete() },

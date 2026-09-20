@@ -63,9 +63,25 @@ data class Track(
     val thumbnailUrl: String?,
     val durationMs: Long,
     val addedAt: Long = System.currentTimeMillis(),
+
+    /**
+     * Adres pobranej kopii w galerii (content://...) albo null, gdy film jest
+     * tylko streamowany. Gdy jest ustawiony, apka odtwarza plik z dysku zamiast
+     * lecieć po sieć - i to jest cala obsluga trybu offline.
+     */
+    val localUri: String? = null,
+
+    /**
+     * Ile z filmu faktycznie pobrano. Rowne [durationMs] przy pelnym pobraniu,
+     * mniejsze gdy uzytkownik uciol np. pierwsze 30 sekund z 12-godzinnego nagrania.
+     */
+    val localDurationMs: Long = 0L,
+
     /** Domyslna petla filmu; wpis w playliscie moze ja nadpisac. */
     @Embedded val loop: LoopSettings = LoopSettings.Default,
-)
+) {
+    val isDownloaded: Boolean get() = !localUri.isNullOrBlank()
+}
 
 @Entity(tableName = "playlists")
 data class Playlist(

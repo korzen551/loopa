@@ -10,6 +10,14 @@
     <!-- Pozwala oddac pobrany plik systemowemu instalatorowi (przycisk "Aktualizuj"). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!--
+      Zapis filmow do galerii. Od Androida 10 wystarczy MediaStore i zadne
+      uprawnienie nie jest potrzebne - stad maxSdkVersion.
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
     <application
         android:name=".LoopaApp"
         android:allowBackup="true"

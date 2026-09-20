@@ -1,8 +1,10 @@
 package com.loopa.app.media
 
+import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
@@ -24,6 +26,7 @@ import java.io.IOException
  */
 @UnstableApi
 class LoopaMediaSourceFactory(
+    context: Context,
     private val resolvers: ResolverRegistry,
 ) : MediaSource.Factory {
 
@@ -32,7 +35,15 @@ class LoopaMediaSourceFactory(
 
     private val resolvingFactory = ResolvingDataSource.Factory(httpFactory, LoopaResolver(resolvers))
 
-    private val delegate = DefaultMediaSourceFactory(resolvingFactory)
+    /**
+     * Owiniecie w DefaultDataSource jest tu konieczne, odkad filmy moga byc
+     * pobrane do galerii: sam OkHttp nie otworzy adresu `content://`. Schematy
+     * lokalne obsluguje teraz DefaultDataSource, a wszystko sieciowe (w tym nasze
+     * `loopa://`) leci dalej przez warstwe rozwiazujaca adresy.
+     */
+    private val dataSourceFactory = DefaultDataSource.Factory(context, resolvingFactory)
+
+    private val delegate = DefaultMediaSourceFactory(dataSourceFactory)
 
     override fun setDrmSessionManagerProvider(provider: DrmSessionManagerProvider): MediaSource.Factory =
         apply { delegate.setDrmSessionManagerProvider(provider) }

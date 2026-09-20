@@ -31,8 +31,8 @@ android {
         targetSdk = 35
         // Podbijane przy kazdym wydaniu - Android odmawia instalacji "po wierzchu",
         // gdy nowy plik ma nizszy kod wersji niz zainstalowany.
-        versionCode = 7
-        versionName = "1.4"
+        versionCode = 8
+        versionName = "1.5"
     }
 
     buildTypes {
@@ -94,6 +94,8 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
+    implementation(libs.media3.transformer)
+    implementation(libs.media3.effect)
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

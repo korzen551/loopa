@@ -33,14 +33,21 @@ data class PlayableItem(
 object PlayUri {
     private const val SCHEME = "loopa"
 
-    fun forTrack(track: Track): Uri = Uri.Builder()
-        .scheme(SCHEME)
-        .authority("play")
-        .appendQueryParameter("id", track.id)
-        .appendQueryParameter("src", track.source.name)
-        .appendQueryParameter("sid", track.sourceId)
-        .appendQueryParameter("u", track.url)
-        .build()
+    /**
+     * Pobrana kopia wygrywa z sieciowa: gdy film lezy juz w galerii, odtwarzamy
+     * plik z dysku. To cala obsluga trybu offline - reszta lancucha nie musi
+     * nawet wiedziec, ze cos sie zmienilo.
+     */
+    fun forTrack(track: Track): Uri =
+        track.localUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
+            ?: Uri.Builder()
+                .scheme(SCHEME)
+                .authority("play")
+                .appendQueryParameter("id", track.id)
+                .appendQueryParameter("src", track.source.name)
+                .appendQueryParameter("sid", track.sourceId)
+                .appendQueryParameter("u", track.url)
+                .build()
 
     fun isPlayUri(uri: Uri): Boolean = uri.scheme == SCHEME
 

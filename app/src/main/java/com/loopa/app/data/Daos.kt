@@ -43,6 +43,12 @@ interface TrackDao {
     @Query("DELETE FROM tracks WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("UPDATE tracks SET localUri = :uri, localDurationMs = :durationMs WHERE id = :id")
+    suspend fun setLocalCopy(id: String, uri: String?, durationMs: Long)
+
+    @Query("SELECT * FROM tracks WHERE localUri IS NOT NULL")
+    suspend fun downloaded(): List<Track>
+
     /** Filmy, ktore nie naleza do zadnej playlisty. */
     @Query("SELECT * FROM tracks WHERE id NOT IN (SELECT trackId FROM playlist_items) ORDER BY addedAt DESC")
     fun observeUnfiled(): Flow<List<Track>>
