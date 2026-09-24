@@ -115,7 +115,7 @@ fun FeedScreen(
     }
 
     LaunchedEffect(player.trackId, player.durationMs) {
-        if (player.durationMs > 0) vm.rememberDuration(player.trackId, player.durationMs)
+        if (player.durationMs > 0 && player.isFullDuration) vm.rememberDuration(player.trackId, player.durationMs)
     }
 
     // Zmiana filmu resetuje predkosc do normalnej - tak jak w wiekszosci
@@ -238,11 +238,18 @@ fun FeedScreen(
     }
 
     val currentEntry: PlaylistEntry? = state.entries.getOrNull(pagerState.settledPage)
+    val currentDurationMs = when {
+        currentEntry == null -> 0L
+        player.durationMs > 0 && player.isFullDuration -> player.durationMs
+        // Odtwarzacz zna tylko dlugosc do konca segmentu; baza dostaje prawdziwa
+        // dlugosc od serwisu, gdy tylko zrodlo ja pozna.
+        else -> maxOf(player.durationMs, currentEntry.track.durationMs)
+    }
 
     if (showLoopEditor && currentEntry != null) {
         LoopEditorSheet(
             initial = currentEntry.loop,
-            durationMs = if (player.durationMs > 0) player.durationMs else currentEntry.track.durationMs,
+            durationMs = currentDurationMs,
             currentPositionMs = player.positionMs,
             canScopeToItem = true,
             hasOverride = currentEntry.item.hasLoopOverride,
@@ -283,7 +290,7 @@ fun FeedScreen(
         val albumsLoading by vm.albumsLoading.collectAsStateWithLifecycle()
         DownloadSheet(
             track = currentEntry.track,
-            durationMs = if (player.durationMs > 0) player.durationMs else currentEntry.track.durationMs,
+            durationMs = currentDurationMs,
             albums = albums,
             albumsLoading = albumsLoading,
             onConfirm = { album, startMs, endMs ->

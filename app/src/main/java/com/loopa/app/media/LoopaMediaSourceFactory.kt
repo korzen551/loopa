@@ -6,6 +6,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -17,29 +19,41 @@ import com.loopa.app.resolve.ResolverRegistry
 import java.io.IOException
 
 /**
- * Zamienia adresy `loopa://play?...` na prawdziwe adresy strumieni.
+ * Zamienia adresy `loopa://play?...` na prawdziwe adresy strumieni i owija kazde
+ * zrodlo w [LoopSegmentMediaSource], ktory robi z punktow petli czesc osi czasu.
  *
  * Rozwiazywanie dzieje sie leniwie, przy KAZDYM otwarciu zrodla (takze po
  * przewinieciu i po wznowieniu), wiec gdy podpisany adres wygasnie w trakcie
- * grania, ExoPlayer po prostu dostaje swiezy przy ponownym otwarciu. Nic nie
- * laduje na dysku - to czysty streaming.
+ * grania, ExoPlayer po prostu dostaje swiezy przy ponownym otwarciu.
+ *
+ * Pod spodem siedzi cache na dysku: kazde powtorzenie filmu to nowe otwarcie
+ * zrodla, a bez cache oznaczaloby to sciaganie tego samego klipu z serwerow
+ * TikToka czy YouTube'a przy kazdym obrocie petli.
  */
 @UnstableApi
 class LoopaMediaSourceFactory(
     context: Context,
-    private val resolvers: ResolverRegistry,
+    resolvers: ResolverRegistry,
+    cache: Cache,
+    private val onFullDuration: (trackId: String, durationMs: Long) -> Unit,
 ) : MediaSource.Factory {
 
     private val httpFactory = OkHttpDataSource.Factory(Net.client)
         .setUserAgent(Net.DESKTOP_UA)
 
-    private val resolvingFactory = ResolvingDataSource.Factory(httpFactory, LoopaResolver(resolvers))
+    private val cachedHttpFactory = CacheDataSource.Factory()
+        .setCache(cache)
+        .setUpstreamDataSourceFactory(httpFactory)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
+    private val resolvingFactory = ResolvingDataSource.Factory(cachedHttpFactory, LoopaResolver(resolvers))
 
     /**
      * Owiniecie w DefaultDataSource jest tu konieczne, odkad filmy moga byc
      * pobrane do galerii: sam OkHttp nie otworzy adresu `content://`. Schematy
-     * lokalne obsluguje teraz DefaultDataSource, a wszystko sieciowe (w tym nasze
-     * `loopa://`) leci dalej przez warstwe rozwiazujaca adresy.
+     * lokalne obsluguje DefaultDataSource (bez cache - plik juz jest na dysku),
+     * a wszystko sieciowe (w tym nasze `loopa://`) leci przez warstwe
+     * rozwiazujaca adresy i cache.
      */
     private val dataSourceFactory = DefaultDataSource.Factory(context, resolvingFactory)
 
@@ -53,7 +67,10 @@ class LoopaMediaSourceFactory(
 
     override fun getSupportedTypes(): IntArray = delegate.supportedTypes
 
-    override fun createMediaSource(mediaItem: MediaItem): MediaSource = delegate.createMediaSource(mediaItem)
+    override fun createMediaSource(mediaItem: MediaItem): MediaSource =
+        LoopSegmentMediaSource.wrap(delegate.createMediaSource(mediaItem), mediaItem) { durationMs ->
+            onFullDuration(mediaItem.mediaId, durationMs)
+        }
 
     private class LoopaResolver(
         private val resolvers: ResolverRegistry,
@@ -67,9 +84,15 @@ class LoopaMediaSourceFactory(
             } catch (e: ResolveException) {
                 throw IOException(e.message, e)
             }
-            return dataSpec
-                .withUri(android.net.Uri.parse(stream.url))
-                .withRequestHeaders(stream.headers)
+            return dataSpec.buildUpon()
+                .setUri(android.net.Uri.parse(stream.url))
+                .setHttpRequestHeaders(stream.headers)
+                // Klucz cache zyje tyle, co jeden rozwiazany adres. Ten sam film po
+                // ponownym rozwiazaniu moze przyjsc w innym wariancie (inna
+                // rozdzielczosc, inny plik na serwerze) - sklejenie bajtow z dwoch
+                // roznych plikow daloby zepsute wideo.
+                .setKey("${link.trackId}@${stream.expiresAt}")
+                .build()
         }
     }
 }

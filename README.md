@@ -10,6 +10,11 @@ a potem leci w kółko od 9, a nie od zera.
 
 - **Udostępnianie prosto do apki** — w TikToku/YouTubie dajesz „Udostępnij → Loopa”.
   Wyskakuje półarkusz, w którym zaznaczasz playlisty. Bez wychodzenia z tamtej apki.
+- **Muzyka ze Spotify** — tak samo udostępniasz utwór, album albo całą playlistę.
+  Spotify nie wypuszcza dźwięku poza swoją apkę, więc każdy utwór jest wyszukiwany
+  na YouTube (tytuł, wykonawca, a przede wszystkim długość nagrania co do sekundy)
+  i zapisywany jako zwykły film. Playlista trafia do nowej playlisty w Loopa,
+  w tej samej kolejności. Publiczny podgląd Spotify pokazuje do 100 utworów playlisty.
 - **Playlisty** — dowolnie dużo, film może być w kilku naraz.
 - **Własne punkty startu i końca** — trzy niezależne znaczniki:
   - *start pierwszego odtworzenia*,
@@ -21,9 +26,12 @@ a potem leci w kółko od 9, a nie od zera.
 - **Granie w tle i na ekranie blokady** — zgaszenie ekranu nie przerywa dźwięku.
   Sterowanie pojawia się w powiadomieniach i na ekranie blokady, tak jak w odtwarzaczu
   muzyki. Wracasz, odblokowujesz i decydujesz, czy lecimy dalej.
-- **Zero plików na telefonie** — nic się nie pobiera. W bazie siedzą wyłącznie metadane
-  (tytuł, miniatura, punkty pętli). Sam obraz i dźwięk idą strumieniem z sieci przy
-  każdym odtworzeniu.
+- **Pętla bez przerwy** — powtórzenie nie przewija filmu, tylko przechodzi do
+  wcześniej załadowanego kolejnego przejścia, więc nie ma ułamka sekundy ciszy.
+- **Strumień zamiast plików** — w bazie siedzą wyłącznie metadane (tytuł, miniatura,
+  punkty pętli). Obraz i dźwięk idą z sieci; ostatnio grane klipy leżą w cache
+  (do 300 MB, system czyści go sam), żeby pętla i powrót do filmu nie ściągały go
+  drugi raz.
 
 ## Jak zbudować APK
 
@@ -99,11 +107,18 @@ odtwarzanie
                                                    ├─ ExoPlayer
                                                    ├─ LoopaMediaSourceFactory
                                                    │    loopa://play?… → prawdziwy adres
+                                                   │    + cache na dysku
+                                                   │    └─ LoopSegmentMediaSource
+                                                   │         punkty pętli w osi czasu
                                                    └─ LoopController
-                                                        pilnuje punktów startu/końca
+                                                        liczy powtórzenia, start 1. razu
+
+udostępnienie ze Spotify
+   └─ SpotifyClient     publiczny podgląd open.spotify.com/embed → tytuły i długości
+       └─ YouTubeMatcher wyszukiwanie NewPipe, ocena po długości/tytule/wykonawcy
 ```
 
-Dwie rzeczy warte wyjaśnienia:
+Trzy rzeczy warte wyjaśnienia:
 
 **Adresy strumieni nigdy nie trafiają do bazy.** Wygasają (YouTube kilka godzin,
 TikTok krócej), więc rozwiązywane są leniwie, przy każdym otwarciu źródła —
@@ -111,10 +126,20 @@ TikTok krócej), więc rozwiązywane są leniwie, przy każdym otwarciu źródł
 gdy ExoPlayer faktycznie sięga po dane. Gdy adres wygaśnie w trakcie grania, przy
 kolejnym otwarciu po prostu przychodzi świeży.
 
-**Pętla ma dwa zabezpieczenia.** Odpytywanie pozycji łapie własny koniec segmentu,
-a `REPEAT_MODE_ONE` plus nasłuch nieciągłości łapie naturalny koniec filmu, zanim
-ExoPlayer zdąży przeskoczyć do następnej pozycji w kolejce. Bez tego drugiego
-przy dłuższej playliście co jakiś czas uciekałoby jedno powtórzenie.
+**Pętla nie przewija.** Każde przewinięcie (`seekTo`) czyści dekodery, a przy
+strumieniu czeka jeszcze na bufor — stąd był ułamek sekundy ciszy przy każdym
+powtórzeniu. Teraz koniec segmentu jest końcem okresu w osi czasu
+(`ClippingMediaSource`), a punkt powrotu — domyślną pozycją okna.
+W `REPEAT_MODE_ONE` ExoPlayer ładuje kolejne przejście z wyprzedzeniem i wchodzi
+w nie bez zatrzymywania dekoderów, dokładnie jak między utworami na płycie bez
+przerw. Jedyne, czego to nie ukryje: gdy punkt powrotu nie wypada na klatce
+kluczowej, dekoder musi dojść do niego od najbliższej takiej klatki — dźwięk leci
+wtedy bez przerwy, a obraz może na moment przytrzymać klatkę.
+
+**Pełna długość filmu jedzie osobno.** Z własnym końcem segmentu oś czasu
+odtwarzacza kończy się na tym końcu, więc paski przewijania i edytor pętli biorą
+długość całego filmu z metadanych pozycji (`LoopKeys.FULL_DURATION`), a serwis
+zapisuje ją do bazy, gdy tylko źródło ją pozna.
 
 ## Czego ta apka nie zrobi
 
@@ -143,8 +168,8 @@ To jest apka do sideloadu na własny telefon, nie do Google Play:
 | Ścieżka | Co tam jest |
 | --- | --- |
 | `data/` | Room: filmy, playlisty, wpisy, ustawienia pętli |
-| `resolve/` | rozpoznawanie linków i wyciąganie adresów strumieni |
-| `media/` | serwis odtwarzania, ExoPlayer, kontroler pętli |
+| `resolve/` | rozpoznawanie linków, adresy strumieni, Spotify → YouTube |
+| `media/` | serwis odtwarzania, ExoPlayer, pętla w osi czasu, cache |
 | `ui/library/` | biblioteka: playlisty + filmy luzem |
 | `ui/playlist/` | zawartość playlisty, kolejność, edycja pętli |
 | `ui/player/` | ekran odtwarzania, mini-odtwarzacz, edytor pętli |

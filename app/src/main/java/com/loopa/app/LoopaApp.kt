@@ -30,6 +30,20 @@ class LoopaApp : Application() {
         com.loopa.app.download.GalleryStore(this)
     }
 
+    /**
+     * Cache pobranych kawalkow strumieni. Jedna instancja na proces - SimpleCache
+     * zaklada blokade na katalog i druga instancja na tym samym katalogu sie wywali,
+     * a serwis odtwarzania moze byc tworzony wiele razy w zyciu procesu.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    val mediaCache: androidx.media3.datasource.cache.SimpleCache by lazy {
+        androidx.media3.datasource.cache.SimpleCache(
+            java.io.File(cacheDir, "media"),
+            androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(MEDIA_CACHE_BYTES),
+            androidx.media3.database.StandaloneDatabaseProvider(this),
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         NewPipe.init(
@@ -47,6 +61,11 @@ class LoopaApp : Application() {
                 com.loopa.app.download.LibraryRepair(repository, gallery).run()
             }
         }
+    }
+
+    private companion object {
+        /** Kilkaset klipow z TikToka; system i tak czysci cache, gdy brakuje miejsca. */
+        const val MEDIA_CACHE_BYTES = 300L * 1024 * 1024
     }
 }
 

@@ -19,6 +19,12 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.loopa.app.LoopaApp
 import com.loopa.app.MainActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Odtwarzanie zyje tutaj, a nie w ekranie.
@@ -34,6 +40,9 @@ class PlaybackService : MediaSessionService() {
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
     private lateinit var loopController: LoopController
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val durationsSaved: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     override fun onCreate() {
         super.onCreate()
@@ -52,8 +61,22 @@ class PlaybackService : MediaSessionService() {
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
+        val mediaSourceFactory = LoopaMediaSourceFactory(
+            context = this,
+            resolvers = app.resolvers,
+            cache = app.mediaCache,
+            // TikTok nie podaje dlugosci w metadanych, a z wlasnym koncem segmentu
+            // odtwarzacz widzi juz tylko dlugosc do tego konca - prawdziwa dlugosc
+            // zapisujemy od razu, gdy zrodlo ja pozna.
+            onFullDuration = { trackId, durationMs ->
+                if (trackId.isNotEmpty() && durationsSaved.add(trackId)) {
+                    scope.launch { runCatching { app.repository.fillDuration(trackId, durationMs) } }
+                }
+            },
+        )
+
         player = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(LoopaMediaSourceFactory(this, app.resolvers))
+            .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -93,6 +116,7 @@ class PlaybackService : MediaSessionService() {
         loopController.release()
         mediaSession.release()
         player.release()
+        scope.cancel()
         super.onDestroy()
     }
 
@@ -170,8 +194,10 @@ class PlaybackService : MediaSessionService() {
          *
          * Podmieniamy MediaItem po stronie serwisu, a nie kontrolera: tutaj adres
          * zrodla jest kompletny, wiec [Player.replaceMediaItem] widzi, ze zmienily
-         * sie same metadane, i aktualizuje wpis bez przerywania dzwieku. Zmiana
-         * wraca potem sama do wszystkich kontrolerow.
+         * sie same metadane, i aktualizuje wpis bez przerywania dzwieku. Wyjatek to
+         * zmiana punktow petli - te siedza w osi czasu zrodla, wiec
+         * [LoopSegmentMediaSource] wymusza wtedy nowe zrodlo. Zmiana wraca potem
+         * sama do wszystkich kontrolerow.
          */
         override fun onCustomCommand(
             session: MediaSession,

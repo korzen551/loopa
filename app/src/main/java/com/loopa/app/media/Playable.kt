@@ -73,16 +73,20 @@ object LoopKeys {
     const val COUNT = "loopa.count"
     const val ITEM_ID = "loopa.itemId"
     const val SOURCE = "loopa.source"
+    const val FULL_DURATION = "loopa.fullDuration"
 }
 
-fun LoopSettings.toBundle(playlistItemId: Long?, source: Source): Bundle = Bundle().apply {
-    putLong(LoopKeys.START, startMs)
-    putLong(LoopKeys.LOOP_START, loopStartMs)
-    putLong(LoopKeys.END, endMs)
-    putString(LoopKeys.MODE, repeatMode.name)
-    putInt(LoopKeys.COUNT, repeatCount)
+fun PlayableItem.loopBundle(): Bundle = Bundle().apply {
+    putLong(LoopKeys.START, loop.startMs)
+    putLong(LoopKeys.LOOP_START, loop.loopStartMs)
+    putLong(LoopKeys.END, loop.endMs)
+    putString(LoopKeys.MODE, loop.repeatMode.name)
+    putInt(LoopKeys.COUNT, loop.repeatCount)
     putLong(LoopKeys.ITEM_ID, playlistItemId ?: -1L)
-    putString(LoopKeys.SOURCE, source.name)
+    putString(LoopKeys.SOURCE, track.source.name)
+    // Z wlasnym koncem segmentu odtwarzacz zna juz tylko dlugosc do tego konca,
+    // a paski i edytor dalej potrzebuja calego filmu.
+    putLong(LoopKeys.FULL_DURATION, track.durationMs)
 }
 
 fun MediaItem?.loopSettings(): LoopSettings {
@@ -101,6 +105,10 @@ fun MediaItem?.loopSettings(): LoopSettings {
 fun MediaItem?.playlistItemId(): Long? =
     this?.mediaMetadata?.extras?.getLong(LoopKeys.ITEM_ID, -1L)?.takeIf { it >= 0L }
 
+/** Dlugosc calego filmu z bazy; 0, gdy jeszcze nieznana. */
+fun MediaItem?.fullDurationMs(): Long =
+    this?.mediaMetadata?.extras?.getLong(LoopKeys.FULL_DURATION, 0L)?.coerceAtLeast(0L) ?: 0L
+
 fun PlayableItem.toMediaItem(): MediaItem {
     val metadata = MediaMetadata.Builder()
         .setTitle(track.title)
@@ -109,7 +117,7 @@ fun PlayableItem.toMediaItem(): MediaItem {
         .setArtworkUri(track.thumbnailUrl?.toUri())
         .setIsBrowsable(false)
         .setIsPlayable(true)
-        .setExtras(loop.toBundle(playlistItemId, track.source))
+        .setExtras(loopBundle())
         .build()
 
     return MediaItem.Builder()

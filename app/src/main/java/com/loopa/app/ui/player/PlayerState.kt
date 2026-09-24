@@ -16,6 +16,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.loopa.app.data.LoopSettings
 import com.loopa.app.media.PlayerConnection
+import com.loopa.app.media.fullDurationMs
 import com.loopa.app.media.loopSettings
 import com.loopa.app.media.playlistItemId
 import kotlinx.coroutines.delay
@@ -32,7 +33,14 @@ data class PlayerUiState(
     /** Pozycja w kolejce; feed synchronizuje po niej przewijanie. -1 gdy nic nie gra. */
     val queueIndex: Int = -1,
     val positionMs: Long = 0L,
+    /** Dlugosc calego filmu (nie segmentu) - skala paskow i edytora petli. */
     val durationMs: Long = 0L,
+    /**
+     * False, gdy [durationMs] to tylko dlugosc do wlasnego konca segmentu, bo
+     * prawdziwej dlugosci jeszcze nie znamy. Takiej wartosci nie wolno zapisac
+     * do bazy jako dlugosci filmu.
+     */
+    val isFullDuration: Boolean = true,
     val loop: LoopSettings = LoopSettings.Default,
     /** Mnożnik prędkości - żywy, sesyjny; nie ma odpowiednika w bazie. */
     val speed: Float = 1f,
@@ -69,7 +77,8 @@ fun rememberPlayerState(): PlayerUiState {
                 playlistItemId = item.playlistItemId(),
                 queueIndex = if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1,
                 positionMs = player.currentPosition.coerceAtLeast(0L),
-                durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L,
+                durationMs = player.displayDurationMs(item),
+                isFullDuration = item.loopSettings().endMs <= 0L || item.fullDurationMs() > 0L,
                 loop = item.loopSettings(),
                 speed = player.playbackParameters.speed,
                 error = error,
@@ -93,13 +102,24 @@ fun rememberPlayerState(): PlayerUiState {
         while (true) {
             snapshot = snapshot.copy(
                 positionMs = player.currentPosition.coerceAtLeast(0L),
-                durationMs = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: snapshot.durationMs,
+                durationMs = player.displayDurationMs(player.currentMediaItem).takeIf { it > 0 }
+                    ?: snapshot.durationMs,
             )
             delay(200)
         }
     }
 
     return snapshot
+}
+
+/**
+ * Z wlasnym koncem segmentu os czasu odtwarzacza konczy sie na tym koncu (tak
+ * dziala petla bez przerwy), wiec wtedy dlugosc calego filmu bierzemy z bazy.
+ */
+@UnstableApi
+private fun Player.displayDurationMs(item: MediaItem?): Long {
+    val reported = duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
+    return if (item.loopSettings().endMs > 0L) maxOf(reported, item.fullDurationMs()) else reported
 }
 
 private fun friendlyError(e: PlaybackException): String = when {

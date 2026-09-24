@@ -70,7 +70,7 @@ fun PlayerScreen(onBack: () -> Unit) {
         vm.onNowPlayingChanged(state.trackId, state.playlistItemId)
     }
     LaunchedEffect(state.trackId, state.durationMs) {
-        if (state.durationMs > 0) vm.rememberDuration(state.trackId, state.durationMs)
+        if (state.durationMs > 0 && state.isFullDuration) vm.rememberDuration(state.trackId, state.durationMs)
     }
 
     Scaffold(

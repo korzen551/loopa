@@ -1,8 +1,20 @@
 package com.loopa.app.data
 
+import androidx.room.withTransaction
 import com.loopa.app.resolve.LinkParser
 import com.loopa.app.resolve.ResolverRegistry
+import com.loopa.app.resolve.SpotifyClient
+import com.loopa.app.resolve.SpotifyCollection
+import com.loopa.app.resolve.SpotifyLink
+import com.loopa.app.resolve.SpotifySong
+import com.loopa.app.resolve.YouTubeMatch
+import com.loopa.app.resolve.YouTubeMatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
+
+/** Utwor ze Spotify zapisany jako film z YouTube'a, plus to, co dokladnie znalezlismy. */
+data class SpotifyAdded(val track: Track, val match: YouTubeMatch)
 
 /**
  * Jedyne miejsce, ktore dotyka bazy. Trzyma tylko metadane - zadnych plikow wideo
@@ -15,6 +27,9 @@ class LibraryRepository(
     private val tracks = db.trackDao()
     private val playlists = db.playlistDao()
     private val items = db.playlistItemDao()
+
+    private val spotify = SpotifyClient()
+    private val matcher = YouTubeMatcher()
 
     // ---------- odczyt ----------
 
@@ -92,6 +107,70 @@ class LibraryRepository(
         tracks.insertIgnore(track)
         return tracks.byId(track.id)
     }
+
+    // ---------- Spotify ----------
+
+    /** Link ze Spotify z udostepnionego tekstu; krotki spotify.link rozwija przez siec. */
+    suspend fun resolveSpotify(text: String): SpotifyLink? = withContext(Dispatchers.IO) {
+        runCatching { spotify.resolve(text) }.getOrNull()
+    }
+
+    /**
+     * Pojedynczy utwor ze Spotify: szuka go na YouTube i zapisuje jak zwykly film.
+     * Null, gdy na YouTube nie ma nic wystarczajaco podobnego.
+     *
+     * @throws com.loopa.app.resolve.ResolveException gdy Spotify nie pokaze utworu.
+     */
+    suspend fun addSpotifySong(link: SpotifyLink): SpotifyAdded? = withContext(Dispatchers.IO) {
+        val song = spotify.song(link.id)
+        val match = matcher.find(song) ?: return@withContext null
+        SpotifyAdded(saveTracks(listOf(trackFor(song, match))).first(), match)
+    }
+
+    /** @throws com.loopa.app.resolve.ResolveException gdy Spotify nie pokaze playlisty. */
+    suspend fun spotifyCollection(link: SpotifyLink): SpotifyCollection =
+        withContext(Dispatchers.IO) { spotify.collection(link) }
+
+    /**
+     * Dopasowuje utwory do filmow na YouTube. Nic nie zapisuje - to robi dopiero
+     * [saveTracks], gdy uzytkownik zatwierdzi. Null w wyniku = nie znaleziono.
+     */
+    suspend fun matchSongs(
+        songs: List<SpotifySong>,
+        onEach: (found: Boolean) -> Unit,
+    ): List<Track?> = matcher.findAll(songs) { _, match -> onEach(match != null) }
+        .mapIndexed { index, match -> match?.let { trackFor(songs[index], it) } }
+
+    /**
+     * Zapisuje filmy i oddaje ich wersje z bazy. Film, ktory juz byl w bibliotece,
+     * zostaje nietkniety - razem ze swoja petla.
+     */
+    suspend fun saveTracks(list: List<Track>): List<Track> = db.withTransaction {
+        list.map { track ->
+            tracks.insertIgnore(track)
+            tracks.byId(track.id) ?: track
+        }
+    }
+
+    /** Dokłada wiele filmow naraz, w podanej kolejnosci, bez duplikatow. */
+    suspend fun addAllToPlaylist(playlistId: Long, trackIds: List<String>) = db.withTransaction {
+        trackIds.forEach { addToPlaylist(playlistId, it) }
+    }
+
+    /**
+     * Gra film z YouTube'a, ale nazywa sie tak jak na Spotify - tytul i wykonawcy
+     * stamtad sa czystsze niz tytuly filmow ("... (Official Lyric Video) [4K]").
+     */
+    private fun trackFor(song: SpotifySong, match: YouTubeMatch) = Track(
+        id = "yt:${match.videoId}",
+        source = Source.YOUTUBE,
+        sourceId = match.videoId,
+        url = LinkParser.youtubeUrl(match.videoId),
+        title = song.title,
+        author = song.artistLine.ifBlank { null } ?: match.channel,
+        thumbnailUrl = match.thumbnailUrl,
+        durationMs = match.durationMs,
+    )
 
     suspend fun createPlaylist(name: String): Long =
         playlists.insert(Playlist(name = name.trim().ifEmpty { "Nowa playlista" }))

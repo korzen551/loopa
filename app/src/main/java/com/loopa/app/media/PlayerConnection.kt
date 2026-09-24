@@ -77,7 +77,7 @@ object PlayerConnection {
         if (controller.mediaItemCount == 0) return
         controller.sendCustomCommand(
             SessionCommand(PlaybackService.CMD_SET_LOOP, Bundle.EMPTY),
-            item.loop.toBundle(item.playlistItemId, item.track.source),
+            item.loopBundle(),
         )
     }
 
