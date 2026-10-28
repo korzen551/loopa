@@ -27,6 +27,10 @@ class LibraryViewModel(private val app: LoopaApp) : ViewModel() {
     val loose: StateFlow<List<Track>> = repo.observeUnfiled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    init {
+        viewModelScope.launch { repo.observeUnfiled().collect { repo.refreshStale(it) } }
+    }
+
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 

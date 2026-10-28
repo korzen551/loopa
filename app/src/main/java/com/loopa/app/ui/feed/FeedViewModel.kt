@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -36,6 +37,17 @@ class FeedViewModel(private val app: LoopaApp, private val playlistId: Long) : V
             FeedState(playlist, entries)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedState())
 
+    /** Zdjecia wpisow TikToka bez wideo - pokazywane zamiast obrazu z odtwarzacza. */
+    val photos: StateFlow<Map<String, List<String>>> = app.resolvers.photos
+
+    init {
+        // Wygasle miniatury TikToka i wpisy, ktorym przy dodaniu nie udalo sie
+        // pobrac danych, odswiezaja sie w tle.
+        viewModelScope.launch {
+            repo.observeEntries(playlistId).collect { entries -> repo.refreshStale(entries.map { it.track }) }
+        }
+    }
+
     /** Czy kolejka w serwisie odpowiada juz tej playliscie. */
     private var queueLoadedFor: List<Long> = emptyList()
 
@@ -43,13 +55,26 @@ class FeedViewModel(private val app: LoopaApp, private val playlistId: Long) : V
      * Wrzuca playliste do odtwarzacza. Ustawienia przewijania sa doliczane tutaj,
      * wiec zmiana w menu od razu przeklada sie na to, co robi odtwarzacz.
      */
-    fun ensureQueue(startIndex: Int, force: Boolean = false) {
+    fun ensureQueue(startIndex: Int) {
         val current = state.value
         if (current.entries.isEmpty()) return
-        val signature = current.entries.map { it.item.id }
-        if (!force && signature == queueLoadedFor) return
-        queueLoadedFor = signature
+        if (current.entries.map { it.item.id } == queueLoadedFor) return
+        load(current, startIndex)
+    }
 
+    /**
+     * Przeladowuje kolejke w miejscu po zmianie ustawien. Czyta prosto z bazy,
+     * a nie z [state]: ten dostaje zapisana zmiane dopiero chwile pozniej, wiec
+     * kolejka ladowala sie jeszcze ze STARYMI ustawieniami - i dopiero drugie
+     * "Zatwierdz" faktycznie cos zmienialo.
+     */
+    private suspend fun reloadQueue(currentIndex: Int) {
+        val fresh = FeedState(repo.observePlaylist(playlistId).first(), repo.entries(playlistId))
+        if (fresh.entries.isNotEmpty()) load(fresh, currentIndex)
+    }
+
+    private fun load(current: FeedState, startIndex: Int) {
+        queueLoadedFor = current.entries.map { it.item.id }
         val items = current.entries.map { entry ->
             PlayableItem(
                 track = entry.track,
@@ -59,9 +84,6 @@ class FeedViewModel(private val app: LoopaApp, private val playlistId: Long) : V
         }
         PlayerConnection.play(items, startIndex)
     }
-
-    /** Przeladowuje kolejke w miejscu, zachowujac pozycje - po zmianie ustawien. */
-    fun reloadQueue(currentIndex: Int) = ensureQueue(currentIndex, force = true)
 
     fun goTo(index: Int) {
         val entry = state.value.entries.getOrNull(index) ?: return

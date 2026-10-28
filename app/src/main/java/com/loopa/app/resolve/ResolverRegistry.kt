@@ -6,6 +6,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -40,6 +44,15 @@ class ResolverRegistry {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefetchJobs = ConcurrentHashMap<String, Job>()
+
+    private val _photos = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+
+    /**
+     * Zdjecia wpisow TikToka bez wideo, po id filmu. Odtwarzacz gra wtedy sama
+     * muzyke, a ekran pokazuje te zdjecia - pojawiaja sie tu, gdy tylko strumien
+     * zostanie rozwiazany.
+     */
+    val photos: StateFlow<Map<String, List<String>>> = _photos.asStateFlow()
 
     private fun resolverFor(source: Source): StreamResolver = when (source) {
         Source.YOUTUBE -> youtube
@@ -76,6 +89,7 @@ class ResolverRegistry {
                     streamCache[link.trackId] = it
                     embedOnly.remove(link.trackId)
                     lastError.remove(link.trackId)
+                    if (it.images.isNotEmpty()) _photos.update { all -> all + (link.trackId to it.images) }
                 }
             } catch (e: Exception) {
                 embedOnly.add(link.trackId)

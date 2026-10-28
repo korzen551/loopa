@@ -19,6 +19,7 @@ import com.loopa.app.media.PlayerConnection
 import com.loopa.app.media.fullDurationMs
 import com.loopa.app.media.loopSettings
 import com.loopa.app.media.playlistItemId
+import com.loopa.app.resolve.StreamUnavailableException
 import kotlinx.coroutines.delay
 
 data class PlayerUiState(
@@ -64,7 +65,10 @@ fun rememberPlayerState(): PlayerUiState {
             return@DisposableEffect onDispose { }
         }
 
-        fun read(error: String? = snapshot.error) {
+        // Blad zawsze z biezacego stanu odtwarzacza: znika sam, gdy film zostanie
+        // przygotowany od nowa (ponowna proba, przewiniecie na inny film).
+        // Wczesniej raz zapamietany blad zostawal na ekranie na stale.
+        fun read() {
             val item: MediaItem? = player.currentMediaItem
             snapshot = PlayerUiState(
                 controller = player,
@@ -81,13 +85,12 @@ fun rememberPlayerState(): PlayerUiState {
                 isFullDuration = item.loopSettings().endMs <= 0L || item.fullDurationMs() > 0L,
                 loop = item.loopSettings(),
                 speed = player.playbackParameters.speed,
-                error = error,
+                error = player.playerError?.let(::friendlyError),
             )
         }
 
         val listener = object : Player.Listener {
             override fun onEvents(p: Player, events: Player.Events) = read()
-            override fun onPlayerError(e: PlaybackException) = read(error = friendlyError(e))
         }
         player.addListener(listener)
         read()
@@ -122,11 +125,20 @@ private fun Player.displayDurationMs(item: MediaItem?): Long {
     return if (item.loopSettings().endMs > 0L) maxOf(reported, item.fullDurationMs()) else reported
 }
 
-private fun friendlyError(e: PlaybackException): String = when {
-    e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-        e.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-        "Brak polaczenia z siecia."
-    e.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-        "Zrodlo odrzucilo odtwarzanie - sprobuj odswiezyc film."
-    else -> "Nie udalo sie odtworzyc tego filmu."
+private fun friendlyError(e: PlaybackException): String {
+    // Gdy zrodlo samo powiedzialo, czemu sie nie da (np. usuniety film, wpis
+    // bez dzwieku), pokazujemy dokladnie to zamiast ogolnika o sieci.
+    generateSequence<Throwable>(e) { it.cause }
+        .firstOrNull { it is StreamUnavailableException }
+        ?.message?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+
+    return when (e.errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+            "Brak połączenia z siecią."
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+            "Źródło odrzuciło odtwarzanie — spróbuj ponownie."
+        else -> "Nie udało się odtworzyć tego filmu."
+    }
 }

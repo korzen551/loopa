@@ -61,6 +61,7 @@ fun PlayerScreen(onBack: () -> Unit) {
     val track by vm.track.collectAsStateWithLifecycle()
     val hasOverride by vm.hasOverride.collectAsStateWithLifecycle()
     val embedFallback by vm.embedFallback.collectAsStateWithLifecycle()
+    val photos by vm.photos.collectAsStateWithLifecycle()
 
     var showEditor by remember { mutableStateOf(false) }
     var scrubbing by remember { mutableStateOf<Float?>(null) }
@@ -96,8 +97,15 @@ fun PlayerScreen(onBack: () -> Unit) {
                 contentAlignment = Alignment.Center,
             ) {
                 val embedUrl = vm.embedUrl()
+                val trackPhotos = state.trackId?.let { photos[it] }
                 when {
                     embedFallback && embedUrl != null -> EmbedPlayer(embedUrl, Modifier.fillMaxSize())
+                    trackPhotos != null -> com.loopa.app.ui.common.PhotoCarousel(
+                        trackPhotos,
+                        state.isPlaying,
+                        Modifier.fillMaxSize(),
+                        indicatorBottomPadding = 8.dp,
+                    )
                     state.controller != null -> {
                         AndroidView(
                             modifier = Modifier.fillMaxSize(),

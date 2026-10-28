@@ -23,6 +23,11 @@ data class ResolvedStream(
     val durationMs: Long = 0L,
     /** Kiedy uznajemy adres za nieswiezy. */
     val expiresAt: Long = System.currentTimeMillis() + DEFAULT_TTL_MS,
+    /**
+     * Wpis ze zdjeciami (TikTok): [url] to wtedy sama muzyka, a obraz to te
+     * zdjecia, pokazywane przez ekran zamiast wideo.
+     */
+    val images: List<String> = emptyList(),
 ) {
     val isFresh: Boolean get() = System.currentTimeMillis() < expiresAt
 
@@ -32,6 +37,13 @@ data class ResolvedStream(
 }
 
 class ResolveException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * Zrodlo nie dalo sie otworzyc z powodu, ktory warto pokazac uzytkownikowi.
+ * Media3 przenosi przyczyne bledu do ekranu po nazwie klasy i komunikacie,
+ * wiec ekran rozpozna ja i pokaze prawdziwy powod zamiast ogolnika.
+ */
+class StreamUnavailableException(message: String) : java.io.IOException(message)
 
 interface StreamResolver {
     /** Blokujaca - wolana z watku IO albo z watku ladowania ExoPlayera. */

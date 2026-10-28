@@ -60,6 +60,10 @@ import com.loopa.app.data.effectivePlayCount
 import com.loopa.app.media.PlayerConnection
 import com.loopa.app.ui.appViewModel
 import com.loopa.app.ui.common.EmptyState
+import com.loopa.app.ui.common.PhotoCarousel
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.loopa.app.download.DownloadState
 import com.loopa.app.ui.common.formatTime
 import com.loopa.app.ui.download.DownloadProgressBar
@@ -83,7 +87,9 @@ fun FeedScreen(
 ) {
     val vm: FeedViewModel = appViewModel(key = "feed-$playlistId") { FeedViewModel(it, playlistId) }
     val state by vm.state.collectAsStateWithLifecycle()
+    val photos by vm.photos.collectAsStateWithLifecycle()
     val player = rememberPlayerState()
+    val scope = rememberCoroutineScope()
 
     var showLoopEditor by remember { mutableStateOf(false) }
     var showAutoAdvance by remember { mutableStateOf(false) }
@@ -151,6 +157,7 @@ fun FeedScreen(
                     onHoldSpeedEnd = { normalSpeed -> PlayerConnection.setPlaybackSpeed(normalSpeed) },
                     normalSpeedBeforeHold = player.speed,
                     attachPlayer = { view -> view.player = player.controller },
+                    photos = photos[entry.track.id],
                 )
             }
         }
@@ -176,6 +183,13 @@ fun FeedScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { vm.retryCurrent(pagerState.settledPage) }) {
                         Text("Spróbuj ponownie")
+                    }
+                    if (pagerState.settledPage < state.entries.lastIndex) {
+                        OutlinedButton(
+                            onClick = { scope.launch { pagerState.animateScrollToPage(pagerState.settledPage + 1) } },
+                        ) {
+                            Text("Następny", color = Color.White)
+                        }
                     }
                 }
             }
@@ -328,6 +342,7 @@ private fun FeedPage(
     onHoldSpeedEnd: (normalSpeed: Float) -> Unit,
     normalSpeedBeforeHold: Float,
     attachPlayer: (PlayerView) -> Unit,
+    photos: List<String>?,
 ) {
     Box(
         Modifier
@@ -342,9 +357,10 @@ private fun FeedPage(
                     // ma tu zadnego skoku predkosci - stad wyscig z timeoutem
                     // zamiast wprost polegac na onLongPress, ktory nie mowi, kiedy
                     // palec sie podnosi.
+                    // false = gest przejal ktos inny (przesuniecie zdjecia albo
+                    // feedu) - to nie byl tap, wiec nie pauzujemy.
                     val releasedEarly = withTimeoutOrNull(200) {
-                        waitForUpOrCancellation()
-                        true
+                        waitForUpOrCancellation() != null
                     }
                     if (releasedEarly == true) {
                         onTogglePlay()
@@ -359,7 +375,9 @@ private fun FeedPage(
     ) {
         // Tylko biezaca strona dostaje odtwarzacz - pozostale pokazuja miniature,
         // zeby nie bic sie o powierzchnie do rysowania.
-        if (isCurrent && controllerAttached) {
+        if (isCurrent && photos != null) {
+            PhotoCarousel(photos, isPlaying, Modifier.fillMaxSize())
+        } else if (isCurrent && controllerAttached) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->

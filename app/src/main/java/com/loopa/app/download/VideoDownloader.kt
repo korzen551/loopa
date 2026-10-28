@@ -57,6 +57,9 @@ class VideoDownloader(
             ?: error("Nie rozpoznaję linku tego filmu")
         val stream = resolvers.stream(link)
             ?: error(resolvers.errorFor(track.id) ?: "Nie udało się pobrać adresu filmu")
+        if (stream.images.isNotEmpty()) {
+            error("Wpisów ze zdjęciami z TikToka nie da się jeszcze zapisać do galerii.")
+        }
 
         val output = File(context.cacheDir, "downloads").apply { mkdirs() }
             .let { File(it, "loopa-export-${track.id.replace(':', '_')}.mp4") }

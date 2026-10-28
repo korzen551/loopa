@@ -16,7 +16,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import com.loopa.app.resolve.Net
 import com.loopa.app.resolve.ResolveException
 import com.loopa.app.resolve.ResolverRegistry
-import java.io.IOException
+import com.loopa.app.resolve.StreamUnavailableException
 
 /**
  * Zamienia adresy `loopa://play?...` na prawdziwe adresy strumieni i owija kazde
@@ -82,7 +82,7 @@ class LoopaMediaSourceFactory(
                 // Wolane na watku ladowania ExoPlayera - blokowanie jest tu poprawne.
                 resolvers.streamBlocking(link)
             } catch (e: ResolveException) {
-                throw IOException(e.message, e)
+                throw StreamUnavailableException(e.message ?: "Nie udało się otworzyć tego filmu.")
             }
             return dataSpec.buildUpon()
                 .setUri(android.net.Uri.parse(stream.url))

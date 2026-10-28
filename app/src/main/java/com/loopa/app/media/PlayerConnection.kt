@@ -64,6 +64,9 @@ object PlayerConnection {
 
     fun playSingle(item: PlayableItem) = play(listOf(item), 0)
 
+    /** Id wpisu playlisty, ktory wlasnie gra; null przy pojedynczym filmie. */
+    fun currentPlaylistItemId(): Long? = _controller.value?.currentMediaItem.playlistItemId()
+
     /**
      * Podmienia ustawienia petli dla filmu, ktory wlasnie leci - bez przerywania
      * dzwieku. Uzywane, gdy suwaki w edytorze ida na zywo.
@@ -95,9 +98,19 @@ object PlayerConnection {
     fun goToIndex(index: Int, startPositionMs: Long = 0L) {
         val controller = _controller.value ?: return
         if (index < 0 || index >= controller.mediaItemCount) return
-        if (controller.currentMediaItemIndex == index) return
+        if (controller.currentMediaItemIndex == index && controller.playerError == null) return
         controller.seekTo(index, startPositionMs.coerceAtLeast(0L))
+        controller.prepareIfStopped()
         controller.play()
+    }
+
+    /**
+     * Po bledzie odtwarzacz stoi w IDLE i sam przewiniecie na inny film nic nie
+     * zagra - trzeba go przygotowac od nowa. Bez tego jedyna droga po bledzie
+     * bylo wyjscie z playlisty.
+     */
+    private fun MediaController.prepareIfStopped() {
+        if (playbackState == androidx.media3.common.Player.STATE_IDLE && mediaItemCount > 0) prepare()
     }
 
     /**
@@ -114,7 +127,12 @@ object PlayerConnection {
 
     fun togglePlayPause() {
         val controller = _controller.value ?: return
-        if (controller.isPlaying) controller.pause() else controller.play()
+        if (controller.isPlaying) {
+            controller.pause()
+        } else {
+            controller.prepareIfStopped()
+            controller.play()
+        }
     }
 
     fun stop() {

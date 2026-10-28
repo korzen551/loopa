@@ -28,7 +28,9 @@ class TikTokResolver : StreamResolver {
         val pageUrl = canonical(link)
         val realId = idInUrl.find(pageUrl)?.groupValues?.get(1) ?: link.sourceId
 
-        oEmbed(pageUrl)?.let { json ->
+        // Dla wpisow ze zdjeciami oEmbed odpowiada samym szkieletem - bez tytulu,
+        // autora i miniatury. Wtedy tez trzeba siegnac do strony wpisu.
+        oEmbed(pageUrl)?.takeIf { it.optString("thumbnail_url").isNotBlank() }?.let { json ->
             return TrackMetadata(
                 title = json.optString("title").ifBlank { "TikTok $realId" },
                 author = json.optString("author_name").ifBlank { null },
@@ -39,13 +41,21 @@ class TikTokResolver : StreamResolver {
             )
         }
 
-        // oEmbed niedostepny - sprobuj wyciagnac z samej strony.
         val item = runCatching { itemStruct(pageUrl) }.getOrNull()
+        val video = item?.optJSONObject("video")
+        val music = item?.optJSONObject("music")
+        val isPhotoPost = item?.optJSONObject("imagePost") != null
         return TrackMetadata(
             title = item?.optString("desc")?.ifBlank { null } ?: "TikTok $realId",
-            author = item?.optJSONObject("author")?.optString("uniqueId"),
-            thumbnailUrl = item?.optJSONObject("video")?.optString("cover")?.ifBlank { null },
-            durationMs = (item?.optJSONObject("video")?.optLong("duration") ?: 0L) * 1000L,
+            author = item?.optJSONObject("author")?.let { author ->
+                author.optString("nickname").ifBlank { author.optString("uniqueId") }.ifBlank { null }
+            },
+            thumbnailUrl = video?.optString("cover")?.ifBlank { null }
+                ?: item?.optJSONObject("imagePost")?.optJSONObject("cover")?.optJSONObject("imageURL")
+                    ?.optJSONArray("urlList")?.optString(0)?.ifBlank { null },
+            // Wpis ze zdjeciami trwa tyle, co jego muzyka.
+            durationMs = (if (isPhotoPost) music?.optLong("duration") else video?.optLong("duration"))
+                ?.times(1000L) ?: 0L,
             canonicalUrl = pageUrl,
             sourceId = realId,
         )
@@ -60,8 +70,18 @@ class TikTokResolver : StreamResolver {
 
         val item = itemStruct(pageUrl, html)
             ?: throw ResolveException("Nie znalazlem danych filmu na stronie TikToka")
+        val headers = buildMap {
+            put("User-Agent", Net.DESKTOP_UA)
+            put("Referer", "https://www.tiktok.com/")
+            put("Accept", "*/*")
+            put("Accept-Encoding", "identity;q=1, *;q=0")
+            if (cookies.isNotEmpty()) put("Cookie", cookies)
+        }
+
+        photoPost(item, headers)?.let { return it }
+
         val video = item.optJSONObject("video")
-            ?: throw ResolveException("Wpis TikToka nie zawiera wideo (zdjecie?)")
+            ?: throw ResolveException("Wpis TikToka nie zawiera wideo.")
 
         val playUrl = listOf("playAddr", "downloadAddr")
             .firstNotNullOfOrNull { video.optString(it).takeIf { url -> url.startsWith("http") } }
@@ -74,14 +94,6 @@ class TikTokResolver : StreamResolver {
                 }
             ?: throw ResolveException("Brak adresu strumienia w danych TikToka")
 
-        val headers = buildMap {
-            put("User-Agent", Net.DESKTOP_UA)
-            put("Referer", "https://www.tiktok.com/")
-            put("Accept", "*/*")
-            put("Accept-Encoding", "identity;q=1, *;q=0")
-            if (cookies.isNotEmpty()) put("Cookie", cookies)
-        }
-
         return ResolvedStream(
             url = playUrl,
             headers = headers,
@@ -91,13 +103,46 @@ class TikTokResolver : StreamResolver {
         )
     }
 
-    /** Krotkie linki (vm./vt./t/) trzeba najpierw rozwinac. */
-    private fun canonical(link: ParsedLink): String =
-        if (link.needsRedirectResolve || !link.canonicalUrl.contains("/video/")) {
-            Net.finalUrl(link.canonicalUrl).substringBefore('?')
+    /**
+     * Krotkie linki (vm./vt./t/) trzeba najpierw rozwinac. Adres /photo/ zawsze
+     * zamieniamy na /video/ - pod /photo/ TikTok nie oddaje danych wpisu (takie
+     * adresy siedza tez w bazie z wczesniejszych wersji).
+     */
+    private fun canonical(link: ParsedLink): String {
+        val url = link.canonicalUrl.replace("/photo/", "/video/")
+        val expanded = if (link.needsRedirectResolve || !url.contains("/video/")) {
+            Net.finalUrl(url).substringBefore('?')
         } else {
-            link.canonicalUrl
+            url
         }
+        return expanded.replace("/photo/", "/video/")
+    }
+
+    /**
+     * Wpis ze zdjeciami nie ma pliku wideo - jest lista zdjec i osobna muzyka.
+     * Odtwarzacz gra wtedy sama muzyke, a zdjecia pokazuje ekran (karuzela).
+     */
+    private fun photoPost(item: JSONObject, headers: Map<String, String>): ResolvedStream? {
+        val list = item.optJSONObject("imagePost")?.optJSONArray("images") ?: return null
+        val images = (0 until list.length()).mapNotNull { i ->
+            list.optJSONObject(i)?.optJSONObject("imageURL")?.optJSONArray("urlList")
+                ?.optString(0)?.takeIf { it.startsWith("http") }
+        }
+        if (images.isEmpty()) return null
+
+        val music = item.optJSONObject("music")
+        val audioUrl = music?.optString("playUrl")?.takeIf { it.startsWith("http") }
+            ?: throw ResolveException("Ten wpis ze zdjęciami nie ma dźwięku, a Loopa potrzebuje go do odtwarzania.")
+
+        return ResolvedStream(
+            url = audioUrl,
+            headers = headers,
+            durationMs = (music.optLong("duration") * 1000L).coerceAtLeast(0L),
+            // Podpisane adresy zdjec TikToka zyja kilka dni, ale muzyka i ciasteczka krocej.
+            expiresAt = System.currentTimeMillis() + 20 * 60 * 1000L,
+            images = images,
+        )
+    }
 
     private fun itemStruct(pageUrl: String, preloadedHtml: String? = null): JSONObject? {
         val html = preloadedHtml ?: Net.getString(pageUrl, desktopHeaders()).first

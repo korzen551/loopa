@@ -19,6 +19,9 @@ class PlayerViewModel(private val app: LoopaApp) : ViewModel() {
 
     private val repo = app.repository
 
+    /** Zdjecia wpisow TikToka bez wideo - pokazywane zamiast obrazu z odtwarzacza. */
+    val photos: StateFlow<Map<String, List<String>>> = app.resolvers.photos
+
     private val _track = MutableStateFlow<Track?>(null)
     val track: StateFlow<Track?> = _track.asStateFlow()
 

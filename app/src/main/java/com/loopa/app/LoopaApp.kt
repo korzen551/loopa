@@ -12,7 +12,7 @@ import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.localization.ContentCountry
 import org.schabi.newpipe.extractor.localization.Localization
 
-class LoopaApp : Application() {
+class LoopaApp : Application(), coil.ImageLoaderFactory {
 
     val resolvers: ResolverRegistry by lazy { ResolverRegistry() }
 
@@ -60,12 +60,31 @@ class LoopaApp : Application() {
             runCatching {
                 com.loopa.app.download.LibraryRepair(repository, gallery).run()
             }
+            runCatching { repository.refreshStale(repository.allTracksOnce()) }
         }
     }
+
+    /**
+     * Miniatury TikToka maja podpisane adresy, ktore po kilku dniach przestaja
+     * dzialac, a serwer kaze je trzymac w cache krotko. Raz pobrany obrazek ma
+     * zostac na dysku niezaleznie od tego - inaczej po wygasnieciu adresu kafelek
+     * robi sie czarny, choc obrazek juz kiedys byl pobrany.
+     */
+    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+        .respectCacheHeaders(false)
+        .diskCache {
+            coil.disk.DiskCache.Builder()
+                // Ten sam katalog co domyslny w Coilu - juz pobrane miniatury zostaja.
+                .directory(cacheDir.resolve("image_cache"))
+                .maxSizeBytes(THUMB_CACHE_BYTES)
+                .build()
+        }
+        .build()
 
     private companion object {
         /** Kilkaset klipow z TikToka; system i tak czysci cache, gdy brakuje miejsca. */
         const val MEDIA_CACHE_BYTES = 300L * 1024 * 1024
+        const val THUMB_CACHE_BYTES = 150L * 1024 * 1024
     }
 }
 

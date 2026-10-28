@@ -9,9 +9,15 @@ import com.loopa.app.resolve.SpotifyLink
 import com.loopa.app.resolve.SpotifySong
 import com.loopa.app.resolve.YouTubeMatch
 import com.loopa.app.resolve.YouTubeMatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 /** Utwor ze Spotify zapisany jako film z YouTube'a, plus to, co dokladnie znalezlismy. */
 data class SpotifyAdded(val track: Track, val match: YouTubeMatch)
@@ -243,7 +249,59 @@ class LibraryRepository(
         val track = tracks.byId(trackId) ?: return
         val link = LinkParser.parse(track.url) ?: return
         val meta = resolvers.metadata(link, force = true) ?: return
-        tracks.updateMeta(trackId, meta.title, meta.author, meta.thumbnailUrl, meta.durationMs)
+        // Nic dobrego nie nadpisujemy gorszym: oEmbed TikToka nie zna dlugosci,
+        // a wlasny tytul (np. ze Spotify) jest lepszy niz opis filmu.
+        tracks.updateMeta(
+            id = trackId,
+            title = if (track.hasPlaceholderTitle) meta.title else track.title,
+            author = meta.author ?: track.author,
+            thumb = meta.thumbnailUrl ?: track.thumbnailUrl,
+            durationMs = meta.durationMs.takeIf { it > 0L } ?: track.durationMs,
+        )
+    }
+
+    // ---------- odswiezanie miniatur ----------
+
+    private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val refreshQueue = Channel<String>(Channel.UNLIMITED)
+
+    /** Kazdy film probujemy odswiezyc najwyzej raz na uruchomienie apki. */
+    private val refreshAttempted: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    init {
+        refreshScope.launch {
+            for (trackId in refreshQueue) {
+                runCatching { refreshMetadata(trackId) }
+                // Jeden po drugim, z przerwa - setka zapytan naraz to prosba o blokade.
+                delay(REFRESH_GAP_MS)
+            }
+        }
+    }
+
+    /**
+     * Odswieza w tle filmy, ktorych miniatura wygasla albo ktorym przy dodaniu nie
+     * udalo sie pobrac danych (tytul "TikTok 7690..." i czarny kafelek).
+     * Adresy miniatur TikToka sa podpisane i dzialaja tylko kilka dni.
+     */
+    fun refreshStale(list: List<Track>) {
+        list.filter { it.needsMetadataRefresh() }
+            .forEach { if (refreshAttempted.add(it.id)) refreshQueue.trySend(it.id) }
+    }
+
+    private fun Track.needsMetadataRefresh(): Boolean {
+        if (thumbnailUrl.isNullOrBlank() || hasPlaceholderTitle) return true
+        if (source != Source.TIKTOK) return false
+        val expiresAt = EXPIRES_PARAM.find(thumbnailUrl)?.groupValues?.get(1)?.toLongOrNull() ?: return false
+        return expiresAt * 1000L < System.currentTimeMillis() + EXPIRY_MARGIN_MS
+    }
+
+    private val Track.hasPlaceholderTitle: Boolean
+        get() = title.isBlank() || title == "TikTok $sourceId" || title == "YouTube $sourceId"
+
+    private companion object {
+        const val REFRESH_GAP_MS = 300L
+        const val EXPIRY_MARGIN_MS = 6 * 60 * 60 * 1000L
+        val EXPIRES_PARAM = Regex("""[?&]x-expires=(\d+)""")
     }
 
     // ---------- kolejnosc ----------

@@ -88,7 +88,13 @@ object LinkParser {
 
     fun isSupported(text: String?): Boolean = parse(text) != null
 
-    private fun normalizeTikTok(url: String) = stripQuery(url).replace("://m.tiktok.com", "://www.tiktok.com")
+    /**
+     * Wpisy ze zdjeciami maja adres /photo/, ale TikTok pod nim nie zwraca ani
+     * danych wpisu, ani oEmbed - ten sam wpis pod /video/ dziala normalnie.
+     */
+    private fun normalizeTikTok(url: String) = stripQuery(url)
+        .replace("://m.tiktok.com", "://www.tiktok.com")
+        .replace("/photo/", "/video/")
 
     private fun stripQuery(url: String) = url.substringBefore('?').substringBefore('#').trimEnd('/')
 
