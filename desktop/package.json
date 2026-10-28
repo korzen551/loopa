@@ -1,0 +1,41 @@
+{
+  "name": "loopa-desktop",
+  "productName": "Loopa",
+  "version": "1.0.0",
+  "description": "Loopa na Windows - zapętlanie klipów z TikToka i YouTube'a, muzyka ze Spotify.",
+  "main": "main.mjs",
+  "private": true,
+  "author": "korzen551",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.loopa.desktop",
+    "productName": "Loopa",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.mjs",
+      "preload.cjs",
+      "lib/**",
+      "renderer/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Loopa"
+    }
+  },
+  "devDependencies": {
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0"
+  }
+}

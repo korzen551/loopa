@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data: blob:; media-src 'self' blob:; script-src 'self' https://www.youtube.com https://s.ytimg.com; frame-src https://www.youtube.com https://www.youtube-nocookie.com; style-src 'self' 'unsafe-inline'; connect-src 'self'">
+  <title>Loopa</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="titlebar"></div>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><img class="logo" src="icon.png" alt=""> Loopa</div>
+
+      <form class="add" id="add-form" autocomplete="off">
+        <input id="add-input" placeholder="Wklej link z TikToka, YouTube albo Spotify" spellcheck="false">
+        <button type="submit" id="add-button" title="Dodaj">+</button>
+      </form>
+
+      <nav class="nav">
+        <button class="nav-item" data-list="all"><span class="nav-icon" data-icon="home"></span><span class="nav-label">Wszystkie filmy</span><span class="nav-count" id="count-all"></span></button>
+      </nav>
+
+      <div class="section-head">
+        <span>Playlisty</span>
+        <button class="icon-btn small" id="new-playlist" title="Nowa playlista" data-icon="plus"></button>
+      </div>
+      <nav class="nav playlists" id="playlists"></nav>
+
+      <div class="hints">
+        <div><kbd>↑</kbd><kbd>↓</kbd> / kółko — następny film</div>
+        <div><kbd>Spacja</kbd> pauza · <kbd>M</kbd> wycisz</div>
+        <div><kbd>←</kbd><kbd>→</kbd> zdjęcia / ±5 s · <kbd>L</kbd> pętla</div>
+      </div>
+    </aside>
+
+    <main class="stage" id="stage">
+      <header class="stage-head">
+        <div class="list-title" id="list-title"></div>
+        <div class="head-actions">
+          <label class="switch" title="Po zadanej liczbie odtworzeń przejdź do następnego filmu">
+            <input type="checkbox" id="auto-advance"><span class="track"></span>
+            <span>Przewijaj samo</span>
+          </label>
+          <div class="stepper" id="plays-stepper" hidden>
+            <button data-step="-1">−</button><span id="plays-count">1</span>×<button data-step="1">+</button>
+          </div>
+          <div class="seg" role="tablist">
+            <button id="view-feed" class="on" data-icon="feed" title="Feed"></button>
+            <button id="view-grid" data-icon="grid" title="Siatka"></button>
+          </div>
+        </div>
+      </header>
+
+      <section class="feed" id="feed">
+        <div class="card-wrap" id="card-wrap"></div>
+        <div class="actions" id="actions">
+          <button class="action" id="act-loop"><span class="bubble" data-icon="repeat"></span><span>Pętla</span></button>
+          <button class="action" id="act-speed"><span class="bubble speed-label">1×</span><span>Szybkość</span></button>
+          <button class="action" id="act-playlist"><span class="bubble" data-icon="playlistAdd"></span><span>Do playlisty</span></button>
+          <button class="action" id="act-source"><span class="bubble" data-icon="open"></span><span>Źródło</span></button>
+          <button class="action" id="act-remove"><span class="bubble" data-icon="trash"></span><span>Usuń</span></button>
+        </div>
+        <div class="pager">
+          <button class="round" id="prev" title="Poprzedni (↑)" data-icon="up"></button>
+          <button class="round" id="next" title="Następny (↓)" data-icon="down"></button>
+        </div>
+      </section>
+
+      <section class="grid" id="grid" hidden></section>
+
+      <div class="empty" id="empty" hidden>
+        <div class="empty-logo">∞</div>
+        <h2>Tu jeszcze nic nie ma</h2>
+        <p>Wklej link po lewej — film z TikToka albo YouTube'a, utwór, album lub całą playlistę ze Spotify.</p>
+      </div>
+    </main>
+  </div>
+
+  <div class="modal-root" id="modal-root"></div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

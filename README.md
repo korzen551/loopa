@@ -33,6 +33,25 @@ a potem leci w kółko od 9, a nie od zera.
   (do 300 MB, system czyści go sam), żeby pętla i powrót do filmu nie ściągały go
   drugi raz.
 
+## Wersja na Windows
+
+Katalog `desktop/` to Loopa na komputer (Electron): menu z boku, pionowy feed
+przewijany kółkiem albo strzałkami, przyciski akcji obok filmu, widok siatki.
+Linki wklejasz w pole w menu — TikTok, YouTube oraz utwory, albumy i playlisty
+ze Spotify. Biblioteka jest osobna od telefonu.
+
+- **TikTok** (filmy i zdjęcia) gra bezpośrednio, z pętlą bez przerwy: dwa
+  odtwarzacze na zmianę, drugi czeka gotowy na punkcie powrotu.
+- **YouTube** gra przez oficjalny odtwarzacz osadzony w oknie. Pętla przewija
+  na punkt powrotu, więc na samym przejściu może być chwila ciszy.
+
+```bash
+cd desktop
+npm install
+npm start          # uruchomienie
+npm run dist       # instalator: desktop/dist/Loopa Setup <wersja>.exe
+```
+
 ## Jak zbudować APK
 
 ### Wariant A — Android Studio (lokalnie)
