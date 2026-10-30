@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
 import com.loopa.app.LoopaApp
 import com.loopa.app.data.Prefs
+import com.loopa.app.data.sync.SyncStatus
 import com.loopa.app.update.InfoResult
 import com.loopa.app.update.UpdateInfo
 import com.loopa.app.update.UpdateState
@@ -124,4 +125,22 @@ class SettingsViewModel(private val app: LoopaApp) : ViewModel() {
     }
 
     fun consumeRefreshMessage() { _refreshMessage.value = null }
+
+    // ---------- synchronizacja ----------
+
+    val syncStatus: StateFlow<SyncStatus> = app.sync.status
+
+    private val _connecting = MutableStateFlow(false)
+    val connecting: StateFlow<Boolean> = _connecting.asStateFlow()
+
+    fun connectSync(token: String) = viewModelScope.launch {
+        if (token.isBlank()) return@launch
+        _connecting.value = true
+        app.sync.connect(token)
+        _connecting.value = false
+    }
+
+    fun syncNow() = viewModelScope.launch { app.sync.sync() }
+
+    fun disconnectSync() = app.sync.disconnect()
 }

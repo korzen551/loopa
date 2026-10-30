@@ -62,13 +62,18 @@ export class NativePlayer {
     for (const v of this.els) {
       v.addEventListener('play', () => this.events.onState?.());
       v.addEventListener('pause', () => this.events.onState?.());
+      v.addEventListener('ended', () => v === this.active && this.check());
     }
+    // Klatki obrazu (rAF) daja najdokladniejszy moment przejscia, ale Windows je
+    // wstrzymuje, gdy okno jest zminimalizowane - wtedy petla stawala na koncu.
+    // Zegar dziala zawsze, wiec petla leci dalej takze w tle.
     const tick = () => {
       if (this.destroyed) return;
       this.check();
       this.raf = requestAnimationFrame(tick);
     };
     this.raf = requestAnimationFrame(tick);
+    this.timer = setInterval(() => this.check(), 20);
   }
 
   seg() {
@@ -88,12 +93,15 @@ export class NativePlayer {
 
   check() {
     const a = this.active;
-    if (a.paused || !a.duration) return;
+    if (this.stopped) return;
+    // Po naturalnym koncu element jest "wstrzymany" - to wlasnie moment na petle.
+    if ((a.paused && !a.ended) || !a.duration) return;
     const seg = this.seg();
     // Rezerwa ~2 klatek: rAF przychodzi co ~16 ms, a koniec ma byc koncem.
     if (a.currentTime < seg.end - 0.035 && !a.ended) return;
     this.cycles += 1;
     if (this.events.onCycle?.(this.cycles) === 'stop') {
+      this.stopped = true;
       a.pause();
       this.events.onEnded?.();
       return;
@@ -106,6 +114,7 @@ export class NativePlayer {
     if (next.readyState < 3) {
       // Zapas jeszcze niegotowy (np. dopiero co przewinieto) - zwykle przewiniecie.
       this.active.currentTime = seg.loopStart;
+      this.active.play().catch(() => {});
       return;
     }
     next.playbackRate = this.active.playbackRate;
@@ -121,6 +130,7 @@ export class NativePlayer {
   }
 
   play() {
+    this.stopped = false;
     this.active.play().catch(() => {});
   }
   pause() {
@@ -153,6 +163,7 @@ export class NativePlayer {
   destroy() {
     this.destroyed = true;
     cancelAnimationFrame(this.raf);
+    clearInterval(this.timer);
     for (const v of this.els) {
       v.pause();
       v.removeAttribute('src');

@@ -261,6 +261,7 @@ function showTrack(direction) {
     .then((m) => {
       if (token !== loadToken) return;
       if (m.kind === 'youtube') {
+        if (m.aspect) $('#card-wrap').style.setProperty('--ar', m.aspect);
         player = new YouTubePlayer(card, events);
         player.setVolume(state.volume, state.muted);
         player.load(m.videoId, t.loop, true);
@@ -576,7 +577,7 @@ function openPlaylistPicker() {
     (m) => {
       render(m);
       $('#pl-list', m).addEventListener('change', async (e) => {
-        const id = Number(e.target.dataset.id);
+        const id = e.target.dataset.id;
         if (e.target.checked) await api.addToPlaylist(id, [t.id]);
         else await api.removeFromPlaylist(id, t.id);
         state.lib = await api.library();
@@ -714,7 +715,7 @@ function importSpotifyCollection(link) {
         <div class="foot"><button class="btn" data-close>Anuluj</button><button class="btn primary" id="sp-save">Zapisz ${result.tracks.length} ${result.tracks.length === 1 ? 'utwór' : 'utworów'}</button></div>`;
       $('#sp-new-name', m).value = result.name;
       $('#sp-save', m).addEventListener('click', async () => {
-        const playlistIds = [...m.querySelectorAll('[data-id]:checked')].map((c) => Number(c.dataset.id));
+        const playlistIds = [...m.querySelectorAll('[data-id]:checked')].map((c) => c.dataset.id);
         const newName = $('#sp-new', m).checked ? $('#sp-new-name', m).value.trim() || result.name : null;
         $('#sp-save', m).disabled = true;
         const target = await api.spotifySave({ tracks: result.tracks, playlistIds, newName });
@@ -744,16 +745,16 @@ function wireUi() {
     const del = e.target.closest('[data-delete]')?.dataset.delete;
     if (rename) {
       e.stopPropagation();
-      const p = state.lib.playlists.find((x) => x.id === Number(rename));
+      const p = state.lib.playlists.find((x) => x.id === rename);
       return promptName('Zmień nazwę', p.name, 'Zapisz', (name) => api.updatePlaylist(p.id, { name }));
     }
     if (del) {
       e.stopPropagation();
-      const p = state.lib.playlists.find((x) => x.id === Number(del));
+      const p = state.lib.playlists.find((x) => x.id === del);
       return confirmBox('Usunąć playlistę?', `„${p.name}” zniknie, ale filmy zostaną w bibliotece.`, 'Usuń', () => api.deletePlaylist(p.id));
     }
     const id = e.target.closest('[data-playlist]')?.dataset.playlist;
-    if (id) selectList({ type: 'playlist', id: Number(id) });
+    if (id) selectList({ type: 'playlist', id });
   });
   $('#new-playlist').addEventListener('click', () =>
     promptName('Nowa playlista', '', 'Utwórz', async (name) => {
@@ -826,6 +827,81 @@ function wireUi() {
   });
 
   api.onLibraryChanged(() => refresh());
+  // Link z okienka "Zapisz w Loopa" (Spotify albo "Otworz") - dalej jak wklejony.
+  api.onLinkOpen((text) => addLink(text));
+  api.onPause(() => player?.pause());
+
+  $('#sync-button').addEventListener('click', openSync);
+  api.onSyncStatus(renderSyncBadge);
+  api.syncStatus().then(renderSyncBadge);
+}
+
+// ---------- synchronizacja ----------
+
+function syncText(s) {
+  if (s.state === 'off') return 'Wyłączona';
+  if (s.state === 'working') return 'Synchronizuję…';
+  if (s.state === 'ok') return `Zsynchronizowano o ${new Date(s.at).toLocaleTimeString('pl-PL')}`;
+  return s.message ?? 'Błąd synchronizacji';
+}
+
+function renderSyncBadge(s) {
+  const el = $('#sync-button');
+  el.dataset.state = s.state;
+  $('.sync-text', el).textContent = s.state === 'off' ? 'Połącz z telefonem' : syncText(s);
+  const open = $('#sync-status');
+  if (open) open.textContent = syncText(s);
+}
+
+async function openSync() {
+  const s = await api.syncStatus();
+  if (s.state === 'off') {
+    openModal(
+      `<h3>Wspólna biblioteka z telefonem</h3>
+       <div class="sub">Playlisty i filmy takie same na telefonie i tutaj — zmiana w jednym miejscu po chwili jest w drugim, jak w Spotify. Biblioteka leży w ukrytym pliku na Twoim koncie GitHub.</div>
+       <ol class="steps">
+         <li><button class="link" id="token-link">Utwórz token na GitHubie</button> — zaznaczone jest tylko „gist”. Skopiuj go.</li>
+         <li>Wklej go tutaj i w apce na telefonie: Ustawienia → Synchronizacja z komputerem.</li>
+       </ol>
+       <input class="text-input" id="token" type="password" placeholder="Token z GitHuba" spellcheck="false">
+       <div class="note" id="sync-status"></div>
+       <div class="foot"><button class="btn" data-close>Anuluj</button><button class="btn primary" id="connect">Połącz</button></div>`,
+      (m, close) => {
+        $('#token-link', m).addEventListener('click', () => api.openExternal(s.tokenUrl));
+        $('#token', m).focus();
+        $('#connect', m).addEventListener('click', async () => {
+          const token = $('#token', m).value.trim();
+          if (!token) return;
+          $('#connect', m).disabled = true;
+          $('#sync-status', m).textContent = 'Łączę…';
+          const result = await api.syncConnect(token);
+          $('#connect', m).disabled = false;
+          if (result.state === 'ok') {
+            close();
+            toast('Połączono — biblioteka jest wspólna z telefonem');
+          } else {
+            $('#sync-status', m).textContent = syncText(result);
+          }
+        });
+      },
+    );
+    return;
+  }
+  openModal(
+    `<h3>Synchronizacja z telefonem</h3>
+     <div class="sub" id="sync-status">${esc(syncText(s))}</div>
+     <p class="note">Zmiany z telefonu pojawiają się tu w ciągu minuty, a stąd na telefonie tak samo.</p>
+     <div class="foot"><button class="btn" id="disconnect">Rozłącz</button><span class="spacer"></span><button class="btn primary" id="now">Synchronizuj teraz</button></div>`,
+    (m, close) => {
+      $('#now', m).addEventListener('click', () => api.syncNow());
+      $('#disconnect', m).addEventListener('click', () =>
+        confirmBox('Rozłączyć synchronizację?', 'Biblioteka na tym komputerze zostanie, ale przestanie się zgadzać z telefonem.', 'Rozłącz', async () => {
+          await api.syncDisconnect();
+          close();
+        }),
+      );
+    },
+  );
 }
 
 wireUi();

@@ -33,6 +33,19 @@ a potem leci w kółko od 9, a nie od zera.
   (do 300 MB, system czyści go sam), żeby pętla i powrót do filmu nie ściągały go
   drugi raz.
 
+## Wspólna biblioteka (telefon + komputer)
+
+Playlisty, filmy i ustawienia pętli są takie same na telefonie i na komputerze —
+zmiana w jednym miejscu po chwili jest w drugim. Biblioteka leży w jednym pliku
+(`loopa-library.json`) w tajnym giście na koncie GitHub. Połączenie: token
+z uprawnieniem tylko `gist`, wklejony raz w Ustawieniach na telefonie i w „Połącz
+z telefonem” na komputerze.
+
+Każde urządzenie pamięta stan z ostatniej synchronizacji, więc porównanie trzech
+wersji (ostatnia wspólna, ta tutaj, ta w chmurze) mówi, co zmieniło się po której
+stronie — łącznie z usunięciami. Synchronizacja rusza przy starcie, kilka sekund
+po każdej zmianie i co minutę (`SyncEngine.kt`, `desktop/lib/sync.mjs`).
+
 ## Wersja na Windows
 
 Katalog `desktop/` to Loopa na komputer (Electron): menu z boku, pionowy feed

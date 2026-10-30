@@ -41,6 +41,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.util.UnstableApi
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.loopa.app.data.sync.GistStore
+import com.loopa.app.data.sync.SyncStatus
 import com.loopa.app.ui.appViewModel
 import com.loopa.app.update.UpdateState
 
@@ -82,6 +89,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp),
         ) {
+            SyncSection(vm)
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(16.dp))
+
             Text("Wersja", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Loopa ${vm.installedVersion} (kod ${vm.installedCode})",
@@ -163,6 +176,76 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             Spacer(Modifier.height(32.dp))
         }
+    }
+}
+
+/**
+ * Wspolna biblioteka z komputerem. Token z GitHuba wkleja sie raz - ten sam na
+ * telefonie i w Loopa na komputerze - i od tej pory playlisty sa wspolne.
+ */
+@UnstableApi
+@Composable
+private fun SyncSection(vm: SettingsViewModel) {
+    val status by vm.syncStatus.collectAsStateWithLifecycle()
+    val connecting by vm.connecting.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
+    var token by rememberSaveable { mutableStateOf("") }
+
+    Text("Synchronizacja z komputerem", style = MaterialTheme.typography.titleMedium)
+    Spacer(Modifier.height(4.dp))
+
+    if (status is SyncStatus.Off) {
+        Text(
+            "Wspólne playlisty na telefonie i w Loopa na komputerze — dodajesz albo zmieniasz " +
+                "coś w jednym miejscu, a po chwili jest i w drugim. Biblioteka leży w ukrytym " +
+                "pliku na Twoim koncie GitHub.\n\n" +
+                "1. Utwórz token (zaznaczone jest tylko „gist”) i skopiuj go.\n" +
+                "2. Wklej go tutaj i w Loopa na komputerze.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { uriHandler.openUri(GistStore.NEW_TOKEN_URL) },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Utwórz token na GitHubie") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = token,
+            onValueChange = { token = it },
+            label = { Text("Token z GitHuba") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { vm.connectSync(token) },
+            enabled = token.isNotBlank() && !connecting,
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (connecting) "Łączę…" else "Połącz") }
+        return
+    }
+
+    val (text, isError) = when (val s = status) {
+        is SyncStatus.Working -> "Synchronizuję…" to false
+        is SyncStatus.Ok -> "Zsynchronizowano o ${
+            java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(s.at))
+        }. Zmiany z komputera pojawiają się w ciągu minuty." to false
+        is SyncStatus.Failed -> s.message to true
+        SyncStatus.Off -> "" to false
+    }
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { vm.syncNow() }, enabled = status !is SyncStatus.Working, modifier = Modifier.weight(1f)) {
+            Text("Synchronizuj teraz")
+        }
+        OutlinedButton(onClick = { vm.disconnectSync() }, modifier = Modifier.weight(1f)) { Text("Rozłącz") }
     }
 }
 

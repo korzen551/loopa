@@ -80,6 +80,12 @@ interface PlaylistDao {
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<Playlist>>
 
+    @Query("SELECT * FROM playlists")
+    suspend fun allOnce(): List<Playlist>
+
+    @Update
+    suspend fun update(playlist: Playlist)
+
     @Query(
         "UPDATE playlists SET autoAdvance = :autoAdvance, advanceOnFinish = :advanceOnFinish, " +
             "useGlobalCount = :useGlobalCount, globalCount = :globalCount, " +
@@ -123,6 +129,9 @@ interface PlaylistItemDao {
 
     @Query("UPDATE playlist_items SET position = :position WHERE id = :itemId")
     suspend fun setPosition(itemId: Long, position: Int)
+
+    @Query("SELECT * FROM playlist_items")
+    suspend fun all(): List<PlaylistItem>
 
     @Query("SELECT playlistId FROM playlist_items WHERE trackId = :trackId")
     suspend fun playlistIdsFor(trackId: String): List<Long>

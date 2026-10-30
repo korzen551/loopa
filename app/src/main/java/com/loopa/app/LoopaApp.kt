@@ -26,6 +26,11 @@ class LoopaApp : Application(), coil.ImageLoaderFactory {
         com.loopa.app.download.DownloadQueue(this, repository, resolvers)
     }
 
+    /** Wspolna biblioteka z komputerem przez konto GitHub. */
+    val sync: com.loopa.app.data.sync.SyncEngine by lazy {
+        com.loopa.app.data.sync.SyncEngine(this, AppDatabase.get(this))
+    }
+
     val gallery: com.loopa.app.download.GalleryStore by lazy {
         com.loopa.app.download.GalleryStore(this)
     }
@@ -62,6 +67,7 @@ class LoopaApp : Application(), coil.ImageLoaderFactory {
             }
             runCatching { repository.refreshStale(repository.allTracksOnce()) }
         }
+        sync.start(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()))
     }
 
     /**
