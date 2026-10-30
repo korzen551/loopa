@@ -287,18 +287,32 @@ function createTray() {
 let lastClip = '';
 let quick = null;
 
-function watchClipboard() {
-  lastClip = clipboard.readText();
-  setInterval(() => {
-    const text = clipboard.readText();
-    if (text === lastClip) return;
-    lastClip = text;
-    const trimmed = text.trim();
-    if (trimmed.length > 2000) return;
-    const video = parseVideoLink(trimmed);
-    const spotify = !video && /open\.spotify\.com\/|spotify\.link\/|spoti\.fi\//i.test(trimmed);
-    if ((video || spotify) && !win?.isFocused()) showQuickSave(trimmed);
+/** Od Electrona 45 odczyt schowka jest asynchroniczny (jak navigator.clipboard). */
+const readClipboard = async () => String((await Promise.resolve(clipboard.readText()).catch(() => '')) ?? '');
+
+async function watchClipboard() {
+  lastClip = await readClipboard();
+  let busy = false;
+  setInterval(async () => {
+    if (busy) return;
+    busy = true;
+    try {
+      await checkClipboard();
+    } finally {
+      busy = false;
+    }
   }, 800);
+}
+
+async function checkClipboard() {
+  const text = await readClipboard();
+  if (text === lastClip) return;
+  lastClip = text;
+  const trimmed = text.trim();
+  if (trimmed.length > 2000) return;
+  const video = parseVideoLink(trimmed);
+  const spotify = !video && /open\.spotify\.com\/|spotify\.link\/|spoti\.fi\//i.test(trimmed);
+  if ((video || spotify) && !win?.isFocused()) showQuickSave(trimmed);
 }
 
 function showQuickSave(text) {
