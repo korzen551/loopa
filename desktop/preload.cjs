@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld('loopa', {
   previewLink: invoke('link:preview'),
   quickClose: invoke('quick:close'),
   quickOpen: invoke('quick:open'),
+  openExtensionFolder: invoke('extension:open'),
+  extensionPath: invoke('extension:path'),
   onLibraryChanged: (fn) => ipcRenderer.on('library:changed', () => fn()),
   onSpotifyProgress: (fn) => ipcRenderer.on('spotify:progress', (_e, p) => fn(p)),
   onSyncStatus: (fn) => ipcRenderer.on('sync:status', (_e, s) => fn(s)),

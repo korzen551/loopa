@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Loopa – wyślij do Loopa",
+  "version": "1.0",
+  "description": "Dodaje „Loopa” do menu Udostępnij na TikToku oraz „Wyślij do Loopa” w menu prawego przycisku dla TikToka, YouTube'a i Spotify.",
+  "icons": { "48": "icon48.png", "128": "icon128.png" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["contextMenus"],
+  "host_permissions": ["http://127.0.0.1:47913/*"],
+  "action": { "default_title": "Wyślij tę stronę do Loopa", "default_icon": { "48": "icon48.png" } },
+  "content_scripts": [
+    { "matches": ["https://www.tiktok.com/*"], "js": ["content.js"], "run_at": "document_idle" }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["icon128.png"], "matches": ["https://www.tiktok.com/*"] }
+  ]
+}

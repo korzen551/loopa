@@ -131,32 +131,61 @@ export class SyncEngine {
     this.library = library;
     this.safeStorage = safeStorage;
     this.onStatus = onStatus;
-    this.status = { state: this.token() ? 'working' : 'off' };
+    // Polaczenie wczytujemy raz i trzymamy w pamieci. Wczesniej plik byl czytany
+    // przy kazdej synchronizacji, a jeden nieudany odczyt (plik akurat zapisywany,
+    // apka ubita przy aktualizacji) wygladal jak "rozlaczono".
+    this.config = this.readJson(this.configFile);
+    this.cachedToken = null;
+    this.status = { state: this.connected() ? 'working' : 'off' };
     this.running = null;
     this.timer = null;
   }
 
+  /** Rozlaczyc moze tylko przycisk "Rozlacz" - brak pliku to jedyne "off". */
+  connected() {
+    return !!this.config?.token;
+  }
+
   readJson(file) {
-    try {
-      return JSON.parse(fs.readFileSync(file, 'utf8'));
-    } catch {
-      return null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        return JSON.parse(fs.readFileSync(file, 'utf8'));
+      } catch (e) {
+        if (e.code === 'ENOENT') return null;
+        // Windows potrafi chwilowo zablokowac plik (antywirus, trwajacy zapis).
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+      }
     }
+    return null;
   }
 
   writeJson(file, data) {
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(data));
-    fs.renameSync(`${file}.tmp`, file);
+    for (let attempt = 0; ; attempt++) {
+      try {
+        fs.renameSync(`${file}.tmp`, file);
+        return;
+      } catch (e) {
+        if (attempt >= 5) throw e;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+      }
+    }
   }
 
-  token() {
-    const cfg = this.readJson(this.configFile);
-    if (!cfg?.token) return null;
-    try {
-      return this.safeStorage.decryptString(Buffer.from(cfg.token, 'base64'));
-    } catch {
-      return null;
-    }
+  async token() {
+    if (this.cachedToken) return this.cachedToken;
+    if (!this.connected()) return null;
+    const encrypted = Buffer.from(this.config.token, 'base64');
+    const { result, shouldReEncrypt } = await this.safeStorage.decryptStringAsync(encrypted);
+    this.cachedToken = result;
+    if (shouldReEncrypt) await this.saveConfig({ ...this.config, token: result });
+    return result;
+  }
+
+  /** Token zawsze zaszyfrowany przez system Windows (DPAPI), nigdy jawnym tekstem. */
+  async saveConfig({ token, gistId }) {
+    this.config = { token: (await this.safeStorage.encryptStringAsync(token)).toString('base64'), gistId };
+    this.writeJson(this.configFile, this.config);
   }
 
   setStatus(status) {
@@ -187,10 +216,8 @@ export class SyncEngine {
     const clean = token.trim();
     try {
       const gistId = await new Gist(clean).findOrCreate();
-      this.writeJson(this.configFile, {
-        token: this.safeStorage.encryptString(clean).toString('base64'),
-        gistId,
-      });
+      await this.saveConfig({ token: clean, gistId });
+      this.cachedToken = clean;
       await this.sync();
       return this.status;
     } catch (e) {
@@ -202,6 +229,8 @@ export class SyncEngine {
   disconnect() {
     fs.rmSync(this.configFile, { force: true });
     fs.rmSync(this.stateFile, { force: true });
+    this.config = null;
+    this.cachedToken = null;
     this.setStatus({ state: 'off' });
   }
 
@@ -214,12 +243,14 @@ export class SyncEngine {
   }
 
   async runOnce() {
-    const token = this.token();
-    if (!token) return this.setStatus({ state: 'off' });
+    if (!this.connected()) return this.setStatus({ state: 'off' });
     this.setStatus({ state: 'working' });
     try {
+      // Problem z tokenem albo siecia to blad "na chwile" - za minute proba
+      // sie powtorzy. Polaczenie zostaje, dopoki nie klikniesz "Rozlacz".
+      const token = await this.token();
       const gist = new Gist(token);
-      const cfg = this.readJson(this.configFile);
+      const cfg = this.config;
       let gistId = cfg.gistId ?? (await gist.findOrCreate());
       const state = this.readJson(this.stateFile);
       const local = structuredClone(this.library.doc);
@@ -232,7 +263,10 @@ export class SyncEngine {
         gistId = await gist.findOrCreate();
         remote = await gist.read(gistId);
       }
-      if (gistId !== cfg.gistId) this.writeJson(this.configFile, { ...cfg, gistId });
+      if (gistId !== cfg.gistId) {
+        this.config = { ...cfg, gistId };
+        this.writeJson(this.configFile, this.config);
+      }
 
       // Pusty plik w chmurze przy niepustej historii: ktos go skasowal albo
       // zalozyl od nowa - nie wolno uznac, ze wszystko usunieto.

@@ -888,8 +888,40 @@ function wireUi() {
   api.onPause(() => player?.pause());
 
   $('#sync-button').addEventListener('click', openSync);
+  $('#browser-button').addEventListener('click', openBrowserHelp);
   api.onSyncStatus(renderSyncBadge);
   api.syncStatus().then(renderSyncBadge);
+}
+
+// ---------- rozszerzenie do przegladarki ----------
+
+/**
+ * Menu "Udostepnij na" w TikToku jest czescia ich strony - aplikacja nie moze
+ * sie do niego dopisac sama. Robi to male rozszerzenie do Brave, ktore lezy
+ * w folderze Loopa; trzeba je raz wczytac w przegladarce.
+ */
+async function openBrowserHelp() {
+  const folder = await api.extensionPath();
+  openModal(
+    `<h3>„Loopa” w menu Udostępnij na TikToku</h3>
+     <div class="sub">Po jednorazowej instalacji w TikToku w przeglądarce zobaczysz w „Udostępnij na” przycisk <b>Loopa</b> — jak na telefonie. Do tego „Wyślij do Loopa” pod prawym przyciskiem myszy na linkach z TikToka, YouTube'a i Spotify.</div>
+     <ol class="steps">
+       <li>W Brave wpisz w pasek adresu <span class="code">brave://extensions</span> i naciśnij Enter.</li>
+       <li>Włącz <b>Tryb dewelopera</b> (przełącznik w prawym górnym rogu).</li>
+       <li>Kliknij <b>Załaduj rozpakowane</b> i wskaż folder rozszerzenia:<br><span class="code" id="ext-path"></span></li>
+       <li>Odśwież kartę z TikTokiem.</li>
+     </ol>
+     <div class="note">Rozszerzenie wysyła link tylko do Loopa na tym komputerze, a zapis i tak zatwierdzasz w okienku „Zapisz w Loopa”. Loopa musi być włączona (może być schowana przy zegarze).</div>
+     <div class="foot"><button class="btn" id="copy-ext">Kopiuj ścieżkę folderu</button><span class="spacer"></span><button class="btn" id="open-ext">Otwórz folder</button><button class="btn primary" data-close>Gotowe</button></div>`,
+    (m) => {
+      $('#ext-path', m).textContent = folder;
+      $('#open-ext', m).addEventListener('click', () => api.openExtensionFolder());
+      $('#copy-ext', m).addEventListener('click', async () => {
+        await navigator.clipboard.writeText(folder).catch(() => {});
+        toast('Skopiowano ścieżkę — wklej ją w oknie „Załaduj rozpakowane”');
+      });
+    },
+  );
 }
 
 // ---------- synchronizacja ----------

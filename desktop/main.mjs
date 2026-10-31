@@ -1,6 +1,7 @@
 // Loopa na Windows - proces glowny: okno, biblioteka, TikTok/YouTube/Spotify.
 
 import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, safeStorage, screen, session, shell, Tray } from 'electron';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -338,9 +339,50 @@ function showQuickSave(text) {
   }
   const deliver = () => {
     quick.webContents.send('quick:link', text);
-    quick.showInactive();
+    if (!HIDDEN) quick.showInactive();
   };
   quick.webContents.isLoading() ? quick.webContents.once('did-finish-load', deliver) : deliver();
+}
+
+/**
+ * Rozszerzenie do przegladarki ("Loopa" w menu Udostepnij TikToka, "Wyslij do
+ * Loopa" pod prawym przyciskiem) wysyla tu link. Stały port, tylko 127.0.0.1,
+ * i tylko z rozszerzen przegladarki - zwykla strona nie ustawi takiego Origin.
+ * Efekt to wylacznie okienko "Zapisz w Loopa"; zapis i tak zatwierdzasz sam.
+ */
+const SHARE_PORT = 47913;
+
+function startShareServer() {
+  const server = http.createServer(async (req, res) => {
+    const origin = req.headers.origin ?? '';
+    const fromExtension = /^(chrome|moz)-extension:\/\//.test(origin);
+    if (fromExtension) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    if (req.method === 'OPTIONS') return res.writeHead(fromExtension ? 204 : 403).end();
+    if (req.method !== 'POST' || req.url !== '/share' || !fromExtension) return res.writeHead(403).end();
+
+    let body = '';
+    for await (const chunk of req) {
+      body += chunk;
+      if (body.length > 10000) return res.writeHead(413).end();
+    }
+    let payload = {};
+    try {
+      payload = JSON.parse(body);
+    } catch {}
+    // "Loopa" w menu TikToka najpierw klika ich "Copy" - link jest w schowku.
+    const text = String(payload.url || (payload.fromClipboard ? await readClipboard() : '')).trim();
+    const ok = !!parseVideoLink(text) || /open\.spotify\.com\/|spotify\.link\/|spoti\.fi\//i.test(text);
+    if (ok) {
+      lastClip = text; // zeby podgladanie schowka nie pokazalo okienka drugi raz
+      showQuickSave(text);
+    }
+    res.writeHead(ok ? 200 : 422, { 'Content-Type': 'application/json' }).end(JSON.stringify({ ok }));
+  });
+  server.on('error', () => {}); // port zajety - rozszerzenie po prostu nie zadziala
+  server.listen(SHARE_PORT, '127.0.0.1');
 }
 
 function registerQuickIpc() {
@@ -353,6 +395,13 @@ function registerQuickIpc() {
     return { type: 'track', id, source: video.source, title: meta.title, author: meta.author, thumbnailUrl: meta.thumbnailUrl, exists: !!library.track(id), inPlaylists };
   });
   ipcMain.handle('quick:close', () => quick?.hide());
+  // Folder rozszerzenia do Brave - w zainstalowanej apce lezy w resources.
+  ipcMain.handle('extension:open', () =>
+    shell.openPath(app.isPackaged ? path.join(process.resourcesPath, 'extension') : path.join(here, 'extension')),
+  );
+  ipcMain.handle('extension:path', () =>
+    app.isPackaged ? path.join(process.resourcesPath, 'extension') : path.join(here, 'extension'),
+  );
   // Spotify i "Otworz" - dalsza obsluga w glownym oknie (import playlisty itd.).
   ipcMain.handle('quick:open', (_e, text) => {
     quick?.hide();
@@ -374,7 +423,9 @@ app.whenReady().then(async () => {
   useChromeUserAgent();
   if (!HIDDEN) createTray();
   await createWindow();
-  if (!HIDDEN) watchClipboard();
+  // W testach (LOOPA_CLIPTEST) schowek jest sprawdzany takze przy ukrytym oknie.
+  if (!HIDDEN || process.env.LOOPA_CLIPTEST === '1') watchClipboard();
+  if (!HIDDEN || process.env.LOOPA_CLIPTEST === '1') startShareServer();
   sync.start();
   // Miniatury odswiezamy dopiero po pierwszej synchronizacji - dochodza filmy z telefonu.
   setTimeout(refreshStale, 15000);
