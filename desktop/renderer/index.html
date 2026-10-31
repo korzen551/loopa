@@ -50,13 +50,13 @@
             <button data-step="-1">−</button><span id="plays-count">1</span>×<button data-step="1">+</button>
           </div>
           <div class="seg" role="tablist">
-            <button id="view-feed" class="on" data-icon="feed" title="Feed"></button>
-            <button id="view-grid" data-icon="grid" title="Siatka"></button>
+            <button id="view-list" class="on" data-icon="list" title="Lista filmów"></button>
+            <button id="view-feed" data-icon="feed" title="Feed (przewijanie)"></button>
           </div>
         </div>
       </header>
 
-      <section class="feed" id="feed">
+      <section class="feed" id="feed" hidden>
         <div class="card-wrap" id="card-wrap"></div>
         <div class="actions" id="actions">
           <button class="action" id="act-loop"><span class="bubble" data-icon="repeat"></span><span>Pętla</span></button>
@@ -71,7 +71,7 @@
         </div>
       </section>
 
-      <section class="grid" id="grid" hidden></section>
+      <section class="list" id="list"></section>
 
       <div class="empty" id="empty" hidden>
         <div class="empty-logo">∞</div>

@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('loopa', {
   deletePlaylist: invoke('playlist:delete'),
   addToPlaylist: invoke('playlist:add'),
   removeFromPlaylist: invoke('playlist:remove'),
+  movePlaylistItem: invoke('playlist:move'),
   openExternal: invoke('open:external'),
   syncStatus: invoke('sync:status'),
   syncConnect: invoke('sync:connect'),

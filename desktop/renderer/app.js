@@ -9,7 +9,7 @@ const state = {
   list: { type: 'all' },
   items: [],
   index: 0,
-  view: 'feed',
+  view: 'list',
   volume: Number(localStorage.getItem('volume') ?? 1),
   muted: localStorage.getItem('muted') === '1',
   rate: 1,
@@ -98,7 +98,10 @@ async function refresh() {
   state.index = Math.min(state.index, Math.max(0, state.items.length - 1));
   renderSidebar();
   renderHead();
-  if (state.view === 'grid') renderGrid();
+  if (state.view === 'list') {
+    renderList();
+    return;
+  }
   const t = currentTrack();
   if (!t) {
     showEmpty();
@@ -110,15 +113,14 @@ async function refresh() {
   }
 }
 
+/** Jak na telefonie: wejscie w playliste pokazuje najpierw liste filmow. */
 function selectList(list) {
   state.list = list;
   state.items = itemsFor(list);
   state.index = 0;
-  cardTrackId = null;
   renderSidebar();
   renderHead();
-  if (state.view === 'grid') renderGrid();
-  state.items.length ? showTrack(0) : showEmpty();
+  setView('list');
 }
 
 // ---------- menu ----------
@@ -131,7 +133,7 @@ function renderSidebar() {
     .map((p) => {
       const cover = byId.get(p.trackIds[0])?.thumbnailUrl;
       const on = state.list.type === 'playlist' && state.list.id === p.id;
-      return `<button class="nav-item${on ? ' on' : ''}" data-playlist="${p.id}">
+      return `<div class="nav-item${on ? ' on' : ''}" role="button" tabindex="0" data-playlist="${p.id}">
         <span class="playlist-dot" style="${cover ? `background-image:url('${esc(cover)}')` : ''}"></span>
         <span class="nav-label">${esc(p.name)}</span>
         <span class="nav-count">${p.trackIds.length || ''}</span>
@@ -139,7 +141,7 @@ function renderSidebar() {
           <button data-rename="${p.id}" title="Zmień nazwę">${icon('edit')}</button>
           <button data-delete="${p.id}" title="Usuń playlistę">${icon('trash')}</button>
         </span>
-      </button>`;
+      </div>`;
     })
     .join('');
 }
@@ -390,31 +392,85 @@ function go(delta) {
   showTrack(delta);
 }
 
-// ---------- siatka ----------
+// ---------- lista filmow ----------
 
 function setView(view) {
   state.view = view;
   $('#view-feed').classList.toggle('on', view === 'feed');
-  $('#view-grid').classList.toggle('on', view === 'grid');
+  $('#view-list').classList.toggle('on', view === 'list');
   $('#feed').hidden = view !== 'feed';
-  $('#grid').hidden = view !== 'grid';
-  if (view === 'grid') {
-    player?.pause();
-    renderGrid();
+  $('#list').hidden = view !== 'list';
+  if (view === 'list') {
+    // Lista to jak ekran playlisty na telefonie - nic w tle nie gra.
+    destroyPlayer();
+    cardTrackId = null;
+    $('#card-wrap').innerHTML = '';
+    $('#empty').hidden = true;
+    renderList();
   } else if (state.items.length) {
-    player ? player.play() : showTrack(0);
+    if (!player) showTrack(0);
+  } else {
+    showEmpty();
   }
 }
 
-function renderGrid() {
-  $('#grid').innerHTML = state.items
-    .map(
-      (t, i) => `<button class="tile" data-index="${i}" style="${t.thumbnailUrl ? `background-image:url('${esc(t.thumbnailUrl)}')` : ''}">
-        ${t.thumbnailUrl ? '' : `<span class="ph">${esc(t.title)}</span>`}
-        <span class="src">${t.source === 'youtube' ? 'YT' : 'TT'}</span>
-        <span class="t">${esc(t.title)}</span></button>`,
-    )
-    .join('');
+function playFrom(index) {
+  state.index = index;
+  setView('feed');
+}
+
+function renderList() {
+  const p = currentPlaylist();
+  const total = state.items.reduce((sum, t) => sum + (t.durationMs || 0), 0);
+  if (!state.items.length) {
+    $('#list').innerHTML = '';
+    $('#empty').hidden = false;
+    return;
+  }
+  $('#empty').hidden = true;
+  $('#list').innerHTML = `
+    <div class="list-head">
+      <button class="btn primary play-all" data-play="0">${icon('play')}<span>Odtwórz</span></button>
+      <span class="list-meta">${state.items.length} ${state.items.length === 1 ? 'film' : 'filmów'}${total ? ` · ${formatTime(total)}` : ''}</span>
+    </div>
+    <div class="rows">
+      ${state.items
+        .map((t, i) => {
+          const note = loopNote(t.loop);
+          const thumb = t.thumbnailUrl ? `background-image:url('${esc(t.thumbnailUrl)}')` : '';
+          return `<div class="row" data-play="${i}">
+            <span class="row-num">${i + 1}</span>
+            <span class="row-thumb" style="${thumb}"><span class="src">${t.source === 'youtube' ? 'YT' : 'TT'}</span></span>
+            <span class="row-meta">
+              <span class="row-title">${esc(t.title)}</span>
+              <span class="row-sub">${esc([t.author, t.durationMs ? formatTime(t.durationMs) : null].filter(Boolean).join(' · '))}</span>
+              ${note ? `<span class="row-note">${esc(note)}</span>` : ''}
+            </span>
+            <span class="row-tools">
+              <button data-act="loop" data-i="${i}" title="Ustaw pętlę">${icon('repeat')}</button>
+              ${p ? `<button data-act="up" data-i="${i}" title="W górę" ${i === 0 ? 'disabled' : ''}>${icon('up')}</button>
+              <button data-act="down" data-i="${i}" title="W dół" ${i === state.items.length - 1 ? 'disabled' : ''}>${icon('down')}</button>` : ''}
+              <button data-act="remove" data-i="${i}" title="${p ? 'Usuń z playlisty' : 'Usuń z biblioteki'}">${icon('trash')}</button>
+            </span>
+          </div>`;
+        })
+        .join('')}
+    </div>`;
+}
+
+async function onListClick(e) {
+  const act = e.target.closest('[data-act]');
+  if (act) {
+    e.stopPropagation();
+    const t = state.items[Number(act.dataset.i)];
+    const p = currentPlaylist();
+    if (act.dataset.act === 'loop') openLoopEditor(t);
+    else if (act.dataset.act === 'remove') removeTrack(t);
+    else if (p) await api.movePlaylistItem(p.id, t.id, act.dataset.act === 'up' ? -1 : 1);
+    return;
+  }
+  const play = e.target.closest('[data-play]');
+  if (play) playFrom(Number(play.dataset.play));
 }
 
 // ---------- okna dialogowe ----------
@@ -471,10 +527,12 @@ function confirmBox(title, body, confirm, onYes) {
   );
 }
 
-function openLoopEditor() {
-  const t = currentTrack();
+/** Dla filmu, ktory gra, albo dowolnego z listy (wtedy bez "Teraz" i "Posluchaj"). */
+function openLoopEditor(track) {
+  const t = track?.id ? track : currentTrack();
   if (!t) return;
-  const durMs = player?.duration() || t.durationMs || 60000;
+  const live = !!player && cardTrackId === t.id;
+  const durMs = (live && player.duration()) || t.durationMs || 60000;
   const loop = { ...t.loop };
   const fields = [
     ['startMs', 'Start pierwszego odtworzenia', ''],
@@ -491,8 +549,7 @@ function openLoopEditor() {
            <div class="field-row">
              <input type="range" min="0" max="${durMs}" step="100">
              <input class="time-input" spellcheck="false">
-             <button class="mini" data-now>Teraz</button>
-             <button class="mini" data-listen>Posłuchaj</button>
+             ${live ? '<button class="mini" data-now>Teraz</button><button class="mini" data-listen>Posłuchaj</button>' : ''}
            </div></div>`,
        )
        .join('')}
@@ -513,8 +570,8 @@ function openLoopEditor() {
           if (ms != null) loop[key] = Math.min(Math.max(0, ms), durMs);
           sync();
         });
-        $('[data-now]', f).addEventListener('click', () => { loop[key] = Math.round(player?.position() ?? 0); sync(); });
-        $('[data-listen]', f).addEventListener('click', () => { player?.seek(loop[key]); player?.play(); });
+        $('[data-now]', f)?.addEventListener('click', () => { loop[key] = Math.round(player?.position() ?? 0); sync(); });
+        $('[data-listen]', f)?.addEventListener('click', () => { player?.seek(loop[key]); player?.play(); });
       });
       $('#reset', m).addEventListener('click', () => { Object.assign(loop, { startMs: 0, loopStartMs: 0, endMs: 0 }); sync(); });
       $('#save', m).addEventListener('click', async () => {
@@ -525,8 +582,10 @@ function openLoopEditor() {
         const clean = { ...t.loop, startMs: Math.round(seg.start * 1000), loopStartMs: Math.round(seg.loopStart * 1000), endMs: loop.endMs > 0 ? Math.round(seg.end * 1000) : 0 };
         close();
         t.loop = clean;
-        player?.setLoop(clean, true);
-        updateCaption(t);
+        if (live) {
+          player.setLoop(clean, true);
+          updateCaption(t);
+        }
         await api.updateTrack(t.id, { loop: clean });
         toast('Zapisano pętlę');
       });
@@ -599,7 +658,10 @@ function openPlaylistPicker() {
 }
 
 function removeCurrent() {
-  const t = currentTrack();
+  removeTrack(currentTrack());
+}
+
+function removeTrack(t) {
   if (!t) return;
   const p = currentPlaylist();
   if (p) {
@@ -623,8 +685,8 @@ async function showAdded(track) {
   const i = state.items.findIndex((t) => t.id === track.id);
   if (i >= 0) {
     state.index = i;
-    if (state.view === 'grid') setView('feed');
-    showTrack(1);
+    if (state.view === 'list') setView('feed');
+    else showTrack(1);
   }
 }
 
@@ -771,18 +833,12 @@ function wireUi() {
     saveFeedSettings({ playsPerItem: Math.min(99, Math.max(1, feedSettings().playsPerItem + step)) });
   });
   $('#view-feed').addEventListener('click', () => setView('feed'));
-  $('#view-grid').addEventListener('click', () => setView('grid'));
-  $('#grid').addEventListener('click', (e) => {
-    const i = e.target.closest('[data-index]')?.dataset.index;
-    if (i == null) return;
-    state.index = Number(i);
-    setView('feed');
-    showTrack(0);
-  });
+  $('#view-list').addEventListener('click', () => setView('list'));
+  $('#list').addEventListener('click', onListClick);
 
   $('#prev').addEventListener('click', () => go(-1));
   $('#next').addEventListener('click', () => go(1));
-  $('#act-loop').addEventListener('click', openLoopEditor);
+  $('#act-loop').addEventListener('click', () => openLoopEditor());
   $('#act-speed').addEventListener('click', openSpeed);
   $('#act-playlist').addEventListener('click', openPlaylistPicker);
   $('#act-source').addEventListener('click', () => currentTrack() && api.openExternal(currentTrack().url));

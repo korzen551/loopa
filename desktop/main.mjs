@@ -178,6 +178,7 @@ function registerIpc() {
   ipcMain.handle('playlist:delete', (_e, id) => library.deletePlaylist(id));
   ipcMain.handle('playlist:add', (_e, id, trackIds) => library.addToPlaylist(id, trackIds));
   ipcMain.handle('playlist:remove', (_e, id, trackId) => library.removeFromPlaylist(id, trackId));
+  ipcMain.handle('playlist:move', (_e, id, trackId, delta) => library.move(id, trackId, delta));
   ipcMain.handle('open:external', (_e, url) => {
     if (/^https:\/\//.test(url)) shell.openExternal(url);
   });

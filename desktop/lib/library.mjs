@@ -175,6 +175,20 @@ export class Library {
     this.save();
   }
 
+  /** Przesuwa film o [delta] miejsc; kolejnosc jedzie na telefon jak kazda zmiana. */
+  move(playlistId, trackId, delta) {
+    const items = this.playlistItems(playlistId);
+    const from = items.findIndex((i) => i.track === trackId);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= items.length) return;
+    const [moved] = items.splice(from, 1);
+    items.splice(to, 0, moved);
+    items.forEach((item, index) => {
+      item.position = index;
+    });
+    this.save();
+  }
+
   removeFromPlaylist(playlistId, trackId) {
     delete this.doc.items[itemKey(playlistId, trackId)];
     this.save();
