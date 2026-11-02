@@ -3,13 +3,16 @@
 // z JSON-a osadzonego w stronie filmu.
 
 import { DESKTOP_UA, PAGE_HEADERS, ResolveError, getJson, getText } from './net.mjs';
+import { tiktokMusicId } from './links.mjs';
 
 const UNIVERSAL = /<script[^>]+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/;
 const SIGI = /<script[^>]+id="SIGI_STATE"[^>]*>([\s\S]*?)<\/script>/;
 const ID_IN_URL = /\/(?:video|photo)\/(\d{6,})/;
+const FRONTITY = /<script[^>]+id="__FRONTITY_CONNECT_STATE__"[^>]*>([\s\S]*?)<\/script>/;
 
 async function canonical(link) {
   let url = link.url.replace('/photo/', '/video/');
+  if (!link.needsRedirect && tiktokMusicId(url)) return url;
   if (link.needsRedirect || !url.includes('/video/')) {
     const r = await getText(url, PAGE_HEADERS).catch(() => null);
     if (r?.finalUrl) url = r.finalUrl.split('?')[0];
@@ -38,8 +41,61 @@ async function itemStruct(pageUrl) {
   return { item: null, cookies: page.cookies };
 }
 
+function mediaHeaders(cookies) {
+  return {
+    'User-Agent': DESKTOP_UA,
+    Referer: 'https://www.tiktok.com/',
+    Accept: '*/*',
+    'Accept-Encoding': 'identity;q=1, *;q=0',
+    ...(cookies ? { Cookie: cookies } : {}),
+  };
+}
+
+// ---------- dzwieki (tiktok.com/music/...) ----------
+
+/**
+ * Strona dzwieku nie zawiera pliku audio, ale jej wersja do osadzania podaje
+ * filmy, ktore go uzywaja. Kazdy z nich niesie w swoich danych ten sam dzwiek
+ * (music.playUrl) - bierzemy go z pierwszego, ktory sie otworzy.
+ */
+async function sound(musicId) {
+  let state = null;
+  for (let attempt = 0; attempt < 3 && !state; attempt++) {
+    const page = await getText(`https://www.tiktok.com/embed/music/${musicId}`, PAGE_HEADERS).catch(() => null);
+    const raw = page?.text.match(FRONTITY)?.[1];
+    try {
+      state = Object.values(JSON.parse(raw).source.data).find((d) => d?.videoList) ?? null;
+    } catch {}
+  }
+  if (!state) throw new ResolveError('Nie znalazłem tego dźwięku na TikToku.');
+  for (const v of (state.videoList ?? []).slice(0, 5)) {
+    const { item, cookies } = await itemStruct(`https://www.tiktok.com/@${v.authorUniqueId}/video/${v.id}`).catch(() => ({}));
+    const music = item?.music;
+    if (String(music?.id) === musicId && music.playUrl?.startsWith('http')) {
+      return { music, cookies, cover: state.embedInfo?.coverUrl || null, artist: state.embedInfo?.artist || null };
+    }
+  }
+  throw new ResolveError('Nie udało się pobrać tego dźwięku z TikToka.');
+}
+
+async function musicMetadata(pageUrl, musicId) {
+  const s = await sound(musicId);
+  const title = s.music.title || 'Dźwięk z TikToka';
+  const author = s.music.authorName || s.artist;
+  return {
+    title: `♬ ${title}${author ? ` – ${author}` : ''}`,
+    author,
+    thumbnailUrl: s.music.coverLarge || s.cover,
+    durationMs: (s.music.duration ?? 0) * 1000,
+    url: pageUrl,
+    sourceId: `music_${musicId}`,
+  };
+}
+
 export async function tiktokMetadata(link) {
   const pageUrl = await canonical(link);
+  const musicId = tiktokMusicId(pageUrl);
+  if (musicId) return musicMetadata(pageUrl, musicId);
   const realId = pageUrl.match(ID_IN_URL)?.[1] ?? link.sourceId;
 
   // Dla wpisow ze zdjeciami oEmbed oddaje sam szkielet bez tytulu i miniatury.
@@ -72,18 +128,21 @@ export async function tiktokMetadata(link) {
  * muzyka, a obraz to lista zdjec.
  */
 export async function tiktokStream(link) {
+  if (!link) throw new ResolveError('Tego linku Loopa nie umie odtworzyć.');
   const pageUrl = await canonical(link);
+  const expiresAt = Date.now() + 20 * 60 * 1000;
+
+  // Sam dzwiek - gra muzyka, a na ekranie jego okladka (jak wpis ze zdjeciami).
+  const musicId = tiktokMusicId(pageUrl);
+  if (musicId) {
+    const s = await sound(musicId);
+    const cover = s.music.coverLarge || s.cover;
+    return { url: s.music.playUrl, headers: mediaHeaders(s.cookies), images: cover ? [cover] : [], durationMs: (s.music.duration ?? 0) * 1000, expiresAt };
+  }
+
   const { item, cookies } = await itemStruct(pageUrl);
   if (!item) throw new ResolveError('Nie znalazłem danych tego wpisu na TikToku — może został usunięty albo jest prywatny.');
-
-  const headers = {
-    'User-Agent': DESKTOP_UA,
-    Referer: 'https://www.tiktok.com/',
-    Accept: '*/*',
-    'Accept-Encoding': 'identity;q=1, *;q=0',
-    ...(cookies ? { Cookie: cookies } : {}),
-  };
-  const expiresAt = Date.now() + 20 * 60 * 1000;
+  const headers = mediaHeaders(cookies);
 
   const images = (item.imagePost?.images ?? [])
     .map((img) => img?.imageURL?.urlList?.[0])

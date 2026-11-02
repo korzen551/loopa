@@ -30,9 +30,9 @@ interface TrackDao {
 
     @Query(
         "UPDATE tracks SET start_ms = :start, loop_start_ms = :loopStart, end_ms = :end, " +
-            "repeat_mode = :mode, repeat_count = :count WHERE id = :id"
+            "repeat_mode = :mode, repeat_count = :count, speed = :speed WHERE id = :id"
     )
-    suspend fun updateLoop(id: String, start: Long, loopStart: Long, end: Long, mode: String, count: Int)
+    suspend fun updateLoop(id: String, start: Long, loopStart: Long, end: Long, mode: String, count: Int, speed: Float)
 
     @Query("UPDATE tracks SET durationMs = :durationMs WHERE id = :id AND durationMs <= 0")
     suspend fun fillDuration(id: String, durationMs: Long)

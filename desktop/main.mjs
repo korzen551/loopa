@@ -173,6 +173,8 @@ function registerIpc() {
   });
 
   ipcMain.handle('track:update', (_e, id, patch) => library.updateTrack(id, patch));
+  ipcMain.handle('track:loop', (_e, id, playlistId, loop) => library.setLoop(id, playlistId, loop));
+  ipcMain.handle('track:speed', (_e, id, playlistId, speed) => library.setSpeed(id, playlistId, speed));
   ipcMain.handle('track:delete', (_e, id) => library.deleteTrack(id));
   ipcMain.handle('playlist:create', (_e, name) => library.createPlaylist(name));
   ipcMain.handle('playlist:update', (_e, id, patch) => library.updatePlaylist(id, patch));

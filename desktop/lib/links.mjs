@@ -10,6 +10,10 @@ const TT_FULL = /tiktok\.com\/@[^/]+\/(?:video|photo)\/(\d{6,})/;
 const TT_BARE = /tiktok\.com\/v\/(\d{6,})/;
 const TT_SHORT = /(?:vm|vt)\.tiktok\.com\/([A-Za-z0-9]+)/;
 const TT_T = /tiktok\.com\/t\/([A-Za-z0-9]+)/;
+/** Dzwiek: tiktok.com/music/original-sound-7680216120300686102 - id to liczba na koncu. */
+const TT_MUSIC = /tiktok\.com\/music\/(?:[^/?#\s]*-)?(\d{6,})(?=[/?#]|$)/;
+
+export const tiktokMusicId = (url) => url?.match(TT_MUSIC)?.[1] ?? null;
 
 const T_PARAM = /[?&](?:t|start|time_continue)=([0-9hms]+)/i;
 
@@ -50,6 +54,9 @@ function parseSingle(url) {
   }
   if ((m = url.match(TT_FULL)) || (m = url.match(TT_BARE))) {
     return { source: 'tiktok', sourceId: m[1], url: normalizeTikTok(url), startMs };
+  }
+  if ((m = url.match(TT_MUSIC))) {
+    return { source: 'tiktok', sourceId: `music_${m[1]}`, url: normalizeTikTok(url), startMs: 0 };
   }
   if ((m = url.match(TT_SHORT)) || (m = url.match(TT_T))) {
     return { source: 'tiktok', sourceId: `short_${m[1]}`, url: stripQuery(url), startMs, needsRedirect: true };

@@ -157,6 +157,8 @@ private fun LoopSettings.toJson() = JSONObject().apply {
     put("endMs", endMs)
     put("repeatMode", repeatMode.name)
     put("repeatCount", repeatCount)
+    // Zaokraglone, zeby 1.1f nie jechalo jako 1.100000023841858.
+    put("speed", Math.round(speed * 100) / 100.0)
 }
 
 private fun loopFromJson(o: JSONObject?): LoopSettings {
@@ -167,6 +169,7 @@ private fun loopFromJson(o: JSONObject?): LoopSettings {
         endMs = o.optLong("endMs"),
         repeatMode = runCatching { RepeatMode.valueOf(o.optString("repeatMode")) }.getOrDefault(RepeatMode.OFF),
         repeatCount = o.optInt("repeatCount", 3),
+        speed = o.optDouble("speed", 1.0).toFloat().takeIf { it in 0.1f..10f } ?: 1f,
     )
 }
 

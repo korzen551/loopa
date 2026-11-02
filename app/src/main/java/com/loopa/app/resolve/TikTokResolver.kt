@@ -1,5 +1,6 @@
 package com.loopa.app.resolve
 
+import okhttp3.Response
 import org.json.JSONObject
 import java.net.URLEncoder
 
@@ -23,9 +24,14 @@ class TikTokResolver : StreamResolver {
         RegexOption.DOT_MATCHES_ALL,
     )
     private val idInUrl = Regex("""/(?:video|photo)/(\d{6,})""")
+    private val frontityJson = Regex(
+        """<script[^>]+id="__FRONTITY_CONNECT_STATE__"[^>]*>(.*?)</script>""",
+        RegexOption.DOT_MATCHES_ALL,
+    )
 
     override fun metadata(link: ParsedLink): TrackMetadata {
         val pageUrl = canonical(link)
+        LinkParser.tiktokMusicId(pageUrl)?.let { return musicMetadata(pageUrl, it) }
         val realId = idInUrl.find(pageUrl)?.groupValues?.get(1) ?: link.sourceId
 
         // Dla wpisow ze zdjeciami oEmbed odpowiada samym szkieletem - bez tytulu,
@@ -63,20 +69,12 @@ class TikTokResolver : StreamResolver {
 
     override fun stream(link: ParsedLink): ResolvedStream {
         val pageUrl = canonical(link)
-        val (html, response) = Net.getString(pageUrl, desktopHeaders())
-        val cookies = response.headers("set-cookie")
-            .mapNotNull { it.substringBefore(';').takeIf { c -> c.contains('=') } }
-            .joinToString("; ")
+        LinkParser.tiktokMusicId(pageUrl)?.let { return musicStream(it) }
 
+        val (html, response) = Net.getString(pageUrl, desktopHeaders())
         val item = itemStruct(pageUrl, html)
             ?: throw ResolveException("Nie znalazlem danych filmu na stronie TikToka")
-        val headers = buildMap {
-            put("User-Agent", Net.DESKTOP_UA)
-            put("Referer", "https://www.tiktok.com/")
-            put("Accept", "*/*")
-            put("Accept-Encoding", "identity;q=1, *;q=0")
-            if (cookies.isNotEmpty()) put("Cookie", cookies)
-        }
+        val headers = mediaHeaders(cookiesOf(response))
 
         photoPost(item, headers)?.let { return it }
 
@@ -110,12 +108,97 @@ class TikTokResolver : StreamResolver {
      */
     private fun canonical(link: ParsedLink): String {
         val url = link.canonicalUrl.replace("/photo/", "/video/")
+        if (!link.needsRedirectResolve && LinkParser.tiktokMusicId(url) != null) return url
         val expanded = if (link.needsRedirectResolve || !url.contains("/video/")) {
             Net.finalUrl(url).substringBefore('?')
         } else {
             url
         }
         return expanded.replace("/photo/", "/video/")
+    }
+
+    private fun cookiesOf(response: Response) = response.headers("set-cookie")
+        .mapNotNull { it.substringBefore(';').takeIf { c -> c.contains('=') } }
+        .joinToString("; ")
+
+    private fun mediaHeaders(cookies: String) = buildMap {
+        put("User-Agent", Net.DESKTOP_UA)
+        put("Referer", "https://www.tiktok.com/")
+        put("Accept", "*/*")
+        put("Accept-Encoding", "identity;q=1, *;q=0")
+        if (cookies.isNotEmpty()) put("Cookie", cookies)
+    }
+
+    // ---------- dzwieki (tiktok.com/music/...) ----------
+
+    private class Sound(val music: JSONObject, val cover: String?, val artist: String?, val cookies: String)
+
+    /**
+     * Strona dzwieku nie zawiera pliku audio, ale jej wersja do osadzania podaje
+     * filmy, ktore go uzywaja. Kazdy z nich niesie w swoich danych ten sam dzwiek
+     * (music.playUrl) - bierzemy go z pierwszego, ktory sie otworzy.
+     */
+    private fun sound(musicId: String): Sound {
+        var state: JSONObject? = null
+        for (attempt in 0 until 3) {
+            val html = runCatching {
+                Net.getString("https://www.tiktok.com/embed/music/$musicId", desktopHeaders()).first
+            }.getOrNull()
+            state = html?.let { frontityJson.find(it)?.groupValues?.get(1) }
+                ?.let { raw -> runCatching { JSONObject(raw).getJSONObject("source").getJSONObject("data") }.getOrNull() }
+                ?.let { data ->
+                    data.keys().asSequence().firstNotNullOfOrNull { key ->
+                        data.optJSONObject(key)?.takeIf { it.has("videoList") }
+                    }
+                }
+            if (state != null) break
+        }
+        if (state == null) throw ResolveException("Nie znalazłem tego dźwięku na TikToku.")
+
+        val info = state.optJSONObject("embedInfo")
+        val videos = state.optJSONArray("videoList")
+        for (i in 0 until minOf(videos?.length() ?: 0, 5)) {
+            val v = videos?.optJSONObject(i) ?: continue
+            val url = "https://www.tiktok.com/@${v.optString("authorUniqueId")}/video/${v.optString("id")}"
+            val (html, response) = runCatching { Net.getString(url, desktopHeaders()) }.getOrNull() ?: continue
+            val music = itemStruct(url, html)?.optJSONObject("music") ?: continue
+            if (music.optString("id") == musicId && music.optString("playUrl").startsWith("http")) {
+                return Sound(
+                    music = music,
+                    cover = info?.optString("coverUrl")?.ifBlank { null },
+                    artist = info?.optString("artist")?.ifBlank { null },
+                    cookies = cookiesOf(response),
+                )
+            }
+        }
+        throw ResolveException("Nie udało się pobrać tego dźwięku z TikToka.")
+    }
+
+    private fun musicMetadata(pageUrl: String, musicId: String): TrackMetadata {
+        val s = sound(musicId)
+        val title = s.music.optString("title").ifBlank { "Dźwięk z TikToka" }
+        val author = s.music.optString("authorName").ifBlank { null } ?: s.artist
+        return TrackMetadata(
+            title = "♬ $title" + (author?.let { " – $it" } ?: ""),
+            author = author,
+            thumbnailUrl = s.music.optString("coverLarge").ifBlank { null } ?: s.cover,
+            durationMs = s.music.optLong("duration") * 1000L,
+            canonicalUrl = pageUrl,
+            sourceId = "music_$musicId",
+        )
+    }
+
+    /** Sam dzwiek, a na ekranie jego okladka - tak jak przy wpisie ze zdjeciami. */
+    private fun musicStream(musicId: String): ResolvedStream {
+        val s = sound(musicId)
+        val cover = s.music.optString("coverLarge").ifBlank { null } ?: s.cover
+        return ResolvedStream(
+            url = s.music.optString("playUrl"),
+            headers = mediaHeaders(s.cookies),
+            durationMs = (s.music.optLong("duration") * 1000L).coerceAtLeast(0L),
+            expiresAt = System.currentTimeMillis() + 20 * 60 * 1000L,
+            images = listOfNotNull(cover),
+        )
     }
 
     /**

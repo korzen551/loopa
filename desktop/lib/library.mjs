@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const DEFAULT_LOOP = { startMs: 0, loopStartMs: 0, endMs: 0, repeatMode: 'OFF', repeatCount: 3 };
+export const DEFAULT_LOOP = { startMs: 0, loopStartMs: 0, endMs: 0, repeatMode: 'OFF', repeatCount: 3, speed: 1 };
 
 export const emptyDoc = () => ({ tracks: {}, playlists: {}, items: {} });
 export const itemKey = (playlist, track) => `${playlist}/${track}`;
@@ -92,6 +92,11 @@ export class Library {
         autoAdvance: !!p.autoAdvance,
         playsPerItem: p.useGlobalCount ? p.globalCount || 1 : 1,
         trackIds: this.playlistItems(id).map((i) => i.track),
+        // Petle ustawione dla filmu tylko w tej playliscie (na telefonie tak
+        // zapisuje sie kazda petla zmieniona w playliscie).
+        loops: Object.fromEntries(
+          this.playlistItems(id).filter((i) => i.hasLoopOverride).map((i) => [i.track, { ...DEFAULT_LOOP, ...i.loopOverride }]),
+        ),
       }));
     return { tracks, playlists };
   }
@@ -120,6 +125,35 @@ export class Library {
     for (const k of TRACK_FIELDS) if (k in patch) t[k] = patch[k];
     this.save();
     return this.track(id);
+  }
+
+  /**
+   * Petla jak na telefonie: zmieniona w playliscie zostaje przy filmie w tej
+   * playliscie, zmieniona we "Wszystkich filmach" - przy samym filmie.
+   */
+  setLoop(trackId, playlistId, loop) {
+    const item = playlistId && this.doc.items[itemKey(playlistId, trackId)];
+    if (item) {
+      item.hasLoopOverride = true;
+      item.loopOverride = { ...DEFAULT_LOOP, ...loop };
+    } else if (this.doc.tracks[trackId]) {
+      this.doc.tracks[trackId].loop = { ...DEFAULT_LOOP, ...loop };
+    } else {
+      return;
+    }
+    this.save();
+  }
+
+  /**
+   * Predkosc trafia tam, skad film bierze ustawienia - zeby jej zmiana nie
+   * zamrozila w playliscie punktow petli samego filmu.
+   */
+  setSpeed(trackId, playlistId, speed) {
+    const item = playlistId && this.doc.items[itemKey(playlistId, trackId)];
+    const target = item?.hasLoopOverride ? (item.loopOverride ??= { ...DEFAULT_LOOP }) : this.doc.tracks[trackId]?.loop;
+    if (!target) return;
+    target.speed = Math.round(speed * 100) / 100;
+    this.save();
   }
 
   deleteTrack(id) {

@@ -71,6 +71,7 @@ object LoopKeys {
     const val END = "loopa.end"
     const val MODE = "loopa.mode"
     const val COUNT = "loopa.count"
+    const val SPEED = "loopa.speed"
     const val ITEM_ID = "loopa.itemId"
     const val SOURCE = "loopa.source"
     const val FULL_DURATION = "loopa.fullDuration"
@@ -82,6 +83,7 @@ fun PlayableItem.loopBundle(): Bundle = Bundle().apply {
     putLong(LoopKeys.END, loop.endMs)
     putString(LoopKeys.MODE, loop.repeatMode.name)
     putInt(LoopKeys.COUNT, loop.repeatCount)
+    putFloat(LoopKeys.SPEED, loop.speed)
     putLong(LoopKeys.ITEM_ID, playlistItemId ?: -1L)
     putString(LoopKeys.SOURCE, track.source.name)
     // Z wlasnym koncem segmentu odtwarzacz zna juz tylko dlugosc do tego konca,
@@ -99,6 +101,7 @@ fun MediaItem?.loopSettings(): LoopSettings {
         repeatMode = runCatching { RepeatMode.valueOf(extras.getString(LoopKeys.MODE).orEmpty()) }
             .getOrDefault(RepeatMode.OFF),
         repeatCount = extras.getInt(LoopKeys.COUNT, 3),
+        speed = extras.getFloat(LoopKeys.SPEED, 1f),
     )
 }
 

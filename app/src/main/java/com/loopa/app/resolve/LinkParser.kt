@@ -39,6 +39,9 @@ object LinkParser {
     private val TT_SHORT = Regex("""(?:vm|vt)\.tiktok\.com/([A-Za-z0-9]+)""")
     private val TT_T_PATH = Regex("""tiktok\.com/t/([A-Za-z0-9]+)""")
 
+    /** Dzwiek: tiktok.com/music/original-sound-7680216120300686102 - id to liczba na koncu. */
+    private val TT_MUSIC = Regex("""tiktok\.com/music/(?:[^/?#\s]*-)?(\d{6,})(?=[/?#]|$)""")
+
     /** Sekundy z ?t=90 / ?t=1m30s / ?start=90. */
     private val T_PARAM = Regex("""[?&](?:t|start|time_continue)=([0-9hms]+)""", RegexOption.IGNORE_CASE)
     private val HMS = Regex("""(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?""", RegexOption.IGNORE_CASE)
@@ -75,6 +78,9 @@ object LinkParser {
         TT_BARE_ID.find(url)?.let {
             return ParsedLink(Source.TIKTOK, it.groupValues[1], normalizeTikTok(url), startMs)
         }
+        TT_MUSIC.find(url)?.let {
+            return ParsedLink(Source.TIKTOK, "music_" + it.groupValues[1], normalizeTikTok(url))
+        }
         TT_SHORT.find(url)?.let {
             return ParsedLink(Source.TIKTOK, "short_" + it.groupValues[1], stripQuery(url), startMs, needsRedirectResolve = true)
         }
@@ -87,6 +93,9 @@ object LinkParser {
     fun youtubeUrl(id: String) = "https://www.youtube.com/watch?v=$id"
 
     fun isSupported(text: String?): Boolean = parse(text) != null
+
+    /** Id dzwieku z adresu tiktok.com/music/..., null dla zwyklych filmow. */
+    fun tiktokMusicId(url: String): String? = TT_MUSIC.find(url)?.groupValues?.get(1)
 
     /**
      * Wpisy ze zdjeciami maja adres /photo/, ale TikTok pod nim nie zwraca ani

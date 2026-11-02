@@ -27,6 +27,9 @@ enum class RepeatMode {
  *  - [startMs]     - gdzie zaczyna sie PIERWSZE odtworzenie,
  *  - [loopStartMs] - gdzie zaczyna sie KAZDE kolejne (to sa te 9 sekund z zalozenia),
  *  - [endMs]       - gdzie segment sie konczy; 0 = do naturalnego konca filmu.
+ *
+ * Do tego [speed] - predkosc, z jaka ten film ma leciec. Zapamietana razem z
+ * punktami, bo to tez czesc tego, "jak ten klip ma grac".
  */
 data class LoopSettings(
     @ColumnInfo(name = "start_ms") val startMs: Long = 0L,
@@ -34,6 +37,7 @@ data class LoopSettings(
     @ColumnInfo(name = "end_ms") val endMs: Long = 0L,
     @ColumnInfo(name = "repeat_mode") val repeatMode: RepeatMode = RepeatMode.OFF,
     @ColumnInfo(name = "repeat_count") val repeatCount: Int = 3,
+    @ColumnInfo(name = "speed") val speed: Float = 1f,
 ) {
     /** Koniec segmentu w ms, z uwzglednieniem realnej dlugosci filmu. */
     fun effectiveEnd(durationMs: Long): Long =
@@ -43,7 +47,7 @@ data class LoopSettings(
 
     /** Czy w ogole odbiega od "graj od zera do konca". */
     val isCustom: Boolean
-        get() = startMs > 0L || loopStartMs > 0L || endMs > 0L || repeatMode != RepeatMode.OFF
+        get() = startMs > 0L || loopStartMs > 0L || endMs > 0L || repeatMode != RepeatMode.OFF || speed != 1f
 
     companion object {
         val Default = LoopSettings()

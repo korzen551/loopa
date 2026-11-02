@@ -207,6 +207,7 @@ class LibraryRepository(
             end = loop.endMs,
             mode = loop.repeatMode.name,
             count = loop.repeatCount,
+            speed = loop.speed,
         )
     }
 
@@ -214,6 +215,20 @@ class LibraryRepository(
     suspend fun saveItemLoop(itemId: Long, loop: LoopSettings) {
         val entry = items.entry(itemId) ?: return
         items.update(entry.item.copy(hasLoopOverride = true, loopOverride = loop))
+    }
+
+    /**
+     * Zapamietuje predkosc tam, skad wpis bierze ustawienia: we wlasnych
+     * ustawieniach wpisu, gdy je ma, inaczej w ustawieniach filmu. Dzieki temu
+     * zmiana predkosci nie zamraza punktow petli filmu w tej playliscie.
+     */
+    suspend fun saveSpeed(entry: PlaylistEntry, speed: Float) {
+        val fresh = items.entry(entry.item.id) ?: entry
+        if (fresh.item.hasLoopOverride) {
+            items.update(fresh.item.copy(loopOverride = fresh.item.loopOverride.copy(speed = speed)))
+        } else {
+            saveTrackLoop(fresh.track.id, fresh.track.loop.copy(speed = speed))
+        }
     }
 
     /** Kasuje nadpisanie - wpis wraca do ustawien filmu. */

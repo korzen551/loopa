@@ -277,18 +277,18 @@ export class SyncEngine {
 
       const merged = mergeDocs(base, local, remote);
 
-      // To, co dodano tu w trakcie synchronizacji, zostaje (nie bylo go w porownaniu).
-      const now = this.library.doc;
-      const result = structuredClone(merged);
-      for (const kind of ['tracks', 'playlists', 'items']) {
-        for (const [key, value] of Object.entries(now[kind])) {
-          if (!(key in local[kind]) && !(key in result[kind])) result[kind][key] = value;
-        }
-      }
-      if (!same(result, now)) this.library.replaceDoc(result);
+      // Zmiany zrobione tu w trakcie synchronizacji (petla zapisana, gdy szlo
+      // zapytanie do GitHuba) nie moga przepasc - nakladamy je na wynik tak samo,
+      // trojstronnie. Wczesniej zostawaly tylko nowo dodane rzeczy, a np. zapisana
+      // w tym czasie petla wracala do starej.
+      const now = structuredClone(this.library.doc);
+      const changedMeanwhile = !same(now, local);
+      const result = changedMeanwhile ? mergeDocs(local, now, merged) : merged;
+      if (!same(result, now)) this.library.replaceDoc(structuredClone(result));
       if (!same(merged, remote)) await gist.write(gistId, merged);
       this.writeJson(this.stateFile, { base: merged });
       this.setStatus({ state: 'ok', at: Date.now() });
+      if (changedMeanwhile) this.soon();
     } catch (e) {
       this.setStatus({ state: 'error', message: e.message || 'Synchronizacja się nie udała.' });
     }

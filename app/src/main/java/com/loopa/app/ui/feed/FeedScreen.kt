@@ -124,12 +124,6 @@ fun FeedScreen(
         if (player.durationMs > 0 && player.isFullDuration) vm.rememberDuration(player.trackId, player.durationMs)
     }
 
-    // Zmiana filmu resetuje predkosc do normalnej - tak jak w wiekszosci
-    // odtwarzaczy wideo, przyspieszenie nie leci samo w nieskonczonosc.
-    LaunchedEffect(player.queueIndex) {
-        if (player.speed != 1f) PlayerConnection.setPlaybackSpeed(1f)
-    }
-
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (state.entries.isEmpty()) {
             EmptyState(
@@ -319,7 +313,11 @@ fun FeedScreen(
         SpeedSheet(
             initialSpeed = player.speed,
             onSpeedChange = { PlayerConnection.setPlaybackSpeed(it) },
-            onDismiss = { showSpeed = false },
+            onDismiss = {
+                showSpeed = false
+                // Kazdy film pamieta swoja predkosc (zmiana filmu ustawia jego wlasna).
+                currentEntry?.let { vm.saveSpeed(it, PlayerConnection.currentSpeed()) }
+            },
         )
     }
 }

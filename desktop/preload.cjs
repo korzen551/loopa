@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld('loopa', {
   prepare: invoke('media:prepare'),
   retry: invoke('media:retry'),
   updateTrack: invoke('track:update'),
+  setLoop: invoke('track:loop'),
+  setSpeed: invoke('track:speed'),
   deleteTrack: invoke('track:delete'),
   createPlaylist: invoke('playlist:create'),
   updatePlaylist: invoke('playlist:update'),

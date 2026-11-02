@@ -117,6 +117,18 @@ class FeedViewModel(private val app: LoopaApp, private val playlistId: Long) : V
         reloadQueue(currentIndex)
     }
 
+    /**
+     * Predkosc zostaje przy tym filmie - takze na komputerze. Biezacy film
+     * dostaje ja od razu, bez przeladowania kolejki i bez wracania na start.
+     */
+    fun saveSpeed(entry: PlaylistEntry, speed: Float) = viewModelScope.launch {
+        repo.saveSpeed(entry, speed)
+        val fresh = repo.entries(playlistId).firstOrNull { it.item.id == entry.item.id } ?: return@launch
+        PlayerConnection.updateCurrentLoop(
+            PlayableItem(fresh.track, effectiveLoop(state.value.playlist, fresh), fresh.item.id)
+        )
+    }
+
     fun clearLoopOverride(itemId: Long, currentIndex: Int) = viewModelScope.launch {
         repo.clearItemLoop(itemId)
         reloadQueue(currentIndex)

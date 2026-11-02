@@ -79,7 +79,12 @@ function itemsFor(list) {
   const byId = new Map(state.lib.tracks.map((t) => [t.id, t]));
   if (list.type === 'playlist') {
     const p = state.lib.playlists.find((x) => x.id === list.id);
-    return p ? p.trackIds.map((id) => byId.get(id)).filter(Boolean) : [];
+    if (!p) return [];
+    // W playliscie film gra wg petli ustawionej dla niego w tej playliscie, jesli ja ma.
+    return p.trackIds
+      .map((id) => byId.get(id))
+      .filter(Boolean)
+      .map((t) => (p.loops?.[t.id] ? { ...t, loop: p.loops[t.id] } : t));
   }
   return state.lib.tracks;
 }
@@ -212,6 +217,7 @@ function showTrack(direction) {
   $('#feed').style.visibility = '';
   const token = ++loadToken;
   cardTrackId = t.id;
+  showRate(t.loop.speed || 1);
 
   const thumb = t.thumbnailUrl ? `url('${esc(t.thumbnailUrl)}')` : 'none';
   $('#card-wrap').style.setProperty('--ar', t.source === 'youtube' ? t.aspect || 16 / 9 : 9 / 16);
@@ -586,7 +592,7 @@ function openLoopEditor(track) {
           player.setLoop(clean, true);
           updateCaption(t);
         }
-        await api.updateTrack(t.id, { loop: clean });
+        await api.setLoop(t.id, currentPlaylist()?.id ?? null, clean);
         toast('Zapisano pętlę');
       });
       sync();
@@ -597,7 +603,7 @@ function openLoopEditor(track) {
 function openSpeed() {
   const speeds = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
   openModal(
-    `<h3>Szybkość</h3><div class="sub">Działa do zmiany filmu.</div>
+    `<h3>Szybkość</h3><div class="sub">Zapamiętana dla tego filmu — także na telefonie.</div>
      <div class="chips">${speeds.map((s) => `<button class="chip${s === state.rate ? ' on' : ''}" data-rate="${s}">${s}×</button>`).join('')}</div>
      <div class="foot"><button class="btn" data-close>Gotowe</button></div>`,
     (m) => {
@@ -611,11 +617,19 @@ function openSpeed() {
   );
 }
 
-function setRate(rate) {
+function showRate(rate) {
   state.rate = rate;
-  player?.setRate(rate);
   $('.speed-label').textContent = `${rate}×`;
   $('#act-speed').classList.toggle('active', rate !== 1);
+}
+
+function setRate(rate) {
+  showRate(rate);
+  player?.setRate(rate);
+  const t = currentTrack();
+  if (!t) return;
+  t.loop = { ...t.loop, speed: rate };
+  api.setSpeed(t.id, currentPlaylist()?.id ?? null, rate);
 }
 
 function openPlaylistPicker() {

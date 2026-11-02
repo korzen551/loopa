@@ -34,9 +34,13 @@ class LoopController(private val player: Player) : Player.Listener {
      */
     private var pendingStart = false
 
+    /** Ustawienia filmu, ktory gra - do rozpoznania samej zmiany predkosci. */
+    private var lastItem: Pair<String, LoopSettings>? = null
+
     init {
         player.addListener(this)
         applyRepeatMode()
+        rememberCurrent()
     }
 
     fun release() {
@@ -64,6 +68,19 @@ class LoopController(private val player: Player) : Player.Listener {
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) return // patrz onPositionDiscontinuity
+        val previous = lastItem
+        rememberCurrent()
+        applySpeed()
+        // Zapisana sama predkosc tego samego filmu - gra dalej tam, gdzie byl,
+        // bez wracania na start i liczenia powtorzen od nowa.
+        val settings = mediaItem.loopSettings()
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED &&
+            previous != null && previous.first == mediaItem?.mediaId &&
+            previous.second != settings && previous.second.copy(speed = settings.speed) == settings
+        ) {
+            applyRepeatMode()
+            return
+        }
         playsDone = 1
         applyRepeatMode()
         pendingStart = true
@@ -91,6 +108,17 @@ class LoopController(private val player: Player) : Player.Listener {
     }
 
     // ---------- logika ----------
+
+    private fun rememberCurrent() {
+        val item = player.currentMediaItem
+        lastItem = item?.let { it.mediaId to it.loopSettings() }
+    }
+
+    /** Kazdy film leci ze swoja zapamietana predkoscia. */
+    private fun applySpeed() {
+        val speed = player.currentMediaItem.loopSettings().speed.coerceIn(0.1f, 10f)
+        if (player.playbackParameters.speed != speed) player.setPlaybackSpeed(speed)
+    }
 
     /**
      * Wejscie w film bez podanej pozycji (automatyczne przejscie dalej, "nastepny"
