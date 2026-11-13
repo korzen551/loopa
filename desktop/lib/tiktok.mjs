@@ -20,14 +20,17 @@ async function canonical(link) {
   return url.replace('/photo/', '/video/');
 }
 
-async function itemStruct(pageUrl) {
-  const page = await getText(pageUrl, PAGE_HEADERS);
+/** Dane wpisu z jednej odpowiedzi strony; null, gdy TikTok oddal strone bez nich. */
+function parseItem(page, pageUrl) {
   const realId = pageUrl.match(ID_IN_URL)?.[1];
   let m = page.text.match(UNIVERSAL);
   if (m) {
     try {
-      const it = JSON.parse(m[1]).__DEFAULT_SCOPE__['webapp.video-detail'].itemInfo.itemStruct;
+      const detail = JSON.parse(m[1]).__DEFAULT_SCOPE__['webapp.video-detail'];
+      const it = detail?.itemInfo?.itemStruct;
       if (it) return { item: it, cookies: page.cookies };
+      // TikTok wprost mowi, czemu nie pokaze wpisu (np. autor go ukryl) - ponawianie nic nie da.
+      if (detail?.statusCode) return { item: null, cookies: page.cookies, status: detail.statusMsg || String(detail.statusCode) };
     } catch {}
   }
   m = page.text.match(SIGI);
@@ -38,7 +41,62 @@ async function itemStruct(pageUrl) {
       if (key) return { item: modules[key], cookies: page.cookies };
     } catch {}
   }
-  return { item: null, cookies: page.cookies };
+  return null;
+}
+
+/** Ile czekamy na strone TikToka, zanim rownolegle zapytamy drugi raz. */
+const HEDGE_MS = 3000;
+
+/**
+ * Strona wpisu zwykle przychodzi w sekunde, ale co jakis czas TikTok trzyma
+ * odpowiedz po kilkanascie sekund - a film czeka. Gdy pierwsze zapytanie sie
+ * przeciaga (albo wraca strona bez danych), idzie drugie i wygrywa szybsze.
+ */
+async function itemStruct(pageUrl) {
+  const tries = 3;
+  let started = 0;
+  let failed = 0;
+  let lastCookies = '';
+  let lastError = null;
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let timer = null;
+    const launch = () => {
+      if (finished || started >= tries) return;
+      started += 1;
+      clearTimeout(timer);
+      timer = setTimeout(launch, HEDGE_MS);
+      getText(pageUrl, PAGE_HEADERS).then(
+        (page) => {
+          lastCookies = page.cookies;
+          const hit = parseItem(page, pageUrl);
+          if (hit && !finished) {
+            finished = true;
+            clearTimeout(timer);
+            resolve(hit);
+          } else {
+            settleFailure();
+          }
+        },
+        (e) => {
+          lastError = e;
+          settleFailure();
+        },
+      );
+    };
+    const settleFailure = () => {
+      if (finished) return;
+      failed += 1;
+      if (started < tries) return launch();
+      if (failed >= started) {
+        finished = true;
+        clearTimeout(timer);
+        if (lastError && !lastCookies) reject(lastError);
+        else resolve({ item: null, cookies: lastCookies });
+      }
+    };
+    launch();
+  });
 }
 
 function mediaHeaders(cookies) {
@@ -140,7 +198,8 @@ export async function tiktokStream(link) {
     return { url: s.music.playUrl, headers: mediaHeaders(s.cookies), images: cover ? [cover] : [], durationMs: (s.music.duration ?? 0) * 1000, expiresAt };
   }
 
-  const { item, cookies } = await itemStruct(pageUrl);
+  const { item, cookies, status } = await itemStruct(pageUrl);
+  if (!item && status === 'status_self_see') throw new ResolveError('Autor ukrył ten film na TikToku — widzi go już tylko on.');
   if (!item) throw new ResolveError('Nie znalazłem danych tego wpisu na TikToku — może został usunięty albo jest prywatny.');
   const headers = mediaHeaders(cookies);
 

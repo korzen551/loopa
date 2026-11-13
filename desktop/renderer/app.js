@@ -382,7 +382,7 @@ function tickProgress() {
 function preloadNeighbours() {
   for (const i of [state.index + 1, state.index - 1]) {
     const t = state.items[i];
-    if (t?.source === 'tiktok') api.prepare(t.id).catch(() => {});
+    if (t?.source === 'tiktok') api.prepare(t.id, true).catch(() => {});
   }
 }
 

@@ -24,15 +24,23 @@ let media;
 let sync;
 const streams = new Map(); // trackId -> rozwiazany adres TikToka (wygasa)
 
-async function streamFor(trackId) {
+const resolving = new Map(); // trackId -> trwajace pytanie TikToka
+
+/** Ten sam film pobierany na zapas i zaraz potem wlaczony pyta TikToka tylko raz. */
+function streamFor(trackId) {
   const cached = streams.get(trackId);
-  if (cached && cached.expiresAt > Date.now()) return cached;
-  const track = library.track(trackId);
-  if (!track) throw new Error('Nie ma takiego filmu w bibliotece.');
-  const stream = await tiktokStream(parseVideoLink(track.url));
-  streams.set(trackId, stream);
-  if (!track.durationMs && stream.durationMs) library.updateTrack(trackId, { durationMs: stream.durationMs });
-  return stream;
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached);
+  if (resolving.has(trackId)) return resolving.get(trackId);
+  const job = (async () => {
+    const track = library.track(trackId);
+    if (!track) throw new Error('Nie ma takiego filmu w bibliotece.');
+    const stream = await tiktokStream(parseVideoLink(track.url));
+    streams.set(trackId, stream);
+    if (!track.durationMs && stream.durationMs) library.updateTrack(trackId, { durationMs: stream.durationMs });
+    return stream;
+  })().finally(() => resolving.delete(trackId));
+  resolving.set(trackId, job);
+  return job;
 }
 
 const send = (channel, payload) => win?.webContents.send(channel, payload);
@@ -150,7 +158,8 @@ function registerIpc() {
     return targets.at(-1) ?? null;
   });
 
-  ipcMain.handle('media:prepare', async (_e, trackId) => {
+  // [preload] = sasiad pobierany na zapas: tylko ustawiamy go w kolejce.
+  ipcMain.handle('media:prepare', async (_e, trackId, preload = false) => {
     const track = library.track(trackId);
     if (!track) throw new Error('Nie ma takiego filmu.');
     if (track.source === 'youtube') {
@@ -162,8 +171,18 @@ function registerIpc() {
       }
       return { kind: 'youtube', videoId: track.sourceId, aspect };
     }
+    // Obejrzany juz klip jest na dysku - bez pytania TikToka (chyba ze to
+    // zdjecia: ich adresy wygasaja, wiec te trzeba wziac ze strony wpisu).
+    const cached = media.cachedOnDisk(trackId);
+    const imagesOk = !cached?.photo || cached.imagesValidUntil > Date.now() + 3600 * 1000;
+    if (cached && imagesOk) {
+      if (preload) media.load(trackId, { background: true });
+      else await media.ready(trackId);
+      return { kind: 'native', url: media.mediaUrl(trackId), images: cached.photo ? cached.images : [] };
+    }
     const stream = await streamFor(trackId);
-    await media.load(trackId); // caly klip w pamieci, zanim odtwarzacz zacznie
+    if (preload) media.load(trackId, { background: true });
+    else await media.ready(trackId); // tylko poczatek - reszta dojdzie w trakcie grania
     return { kind: 'native', url: media.mediaUrl(trackId), images: stream.images };
   });
 
@@ -417,7 +436,7 @@ app.on('second-instance', showMain);
 app.whenReady().then(async () => {
   library = new Library(app.getPath('userData'));
   library.onChange(() => send('library:changed'));
-  media = new MediaServer(path.join(here, 'renderer'), streamFor);
+  media = new MediaServer(path.join(here, 'renderer'), streamFor, path.join(app.getPath('userData'), 'media-cache'));
   await media.start();
   sync = new SyncEngine(app.getPath('userData'), library, safeStorage, (status) => send('sync:status', status));
   registerIpc();
