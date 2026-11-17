@@ -16,6 +16,7 @@ const state = {
 };
 
 let player = null;
+const stuckRebuilds = new Map(); // trackId -> ile razy odtwarzacz byl budowany od nowa
 let carousel = null;
 let card = null;
 let cardTrackId = null;
@@ -128,6 +129,32 @@ function selectList(list) {
   setView('list');
 }
 
+/**
+ * Gdzie jestesmy - zeby odswiezone okno (np. po padnieciu karty graficznej)
+ * wrocilo na ten sam film, a nie na poczatek biblioteki.
+ */
+function rememberPlace() {
+  try {
+    sessionStorage.setItem('place', JSON.stringify({ list: state.list, view: state.view, trackId: currentTrack()?.id ?? null }));
+  } catch {}
+}
+
+function restorePlace() {
+  let place = null;
+  try {
+    place = JSON.parse(sessionStorage.getItem('place') || 'null');
+  } catch {}
+  if (!place) return;
+  if (place.list?.type === 'playlist' && !state.lib.playlists.some((p) => p.id === place.list.id)) return;
+  state.list = place.list ?? { type: 'all' };
+  state.items = itemsFor(state.list);
+  const i = state.items.findIndex((t) => t.id === place.trackId);
+  state.index = i >= 0 ? i : 0;
+  renderSidebar();
+  renderHead();
+  setView(place.view === 'feed' && state.items.length ? 'feed' : 'list');
+}
+
 // ---------- menu ----------
 
 function renderSidebar() {
@@ -217,6 +244,7 @@ function showTrack(direction) {
   $('#feed').style.visibility = '';
   const token = ++loadToken;
   cardTrackId = t.id;
+  rememberPlace();
   showRate(t.loop.speed || 1);
 
   const thumb = t.thumbnailUrl ? `url('${esc(t.thumbnailUrl)}')` : 'none';
@@ -262,6 +290,14 @@ function showTrack(direction) {
       return undefined;
     },
     onError: (msg) => token === loadToken && showError(msg),
+    // Zaciety obraz albo petla w kolko - nowy odtwarzacz od tego samego miejsca
+    // (plik jest juz w pamieci, wiec to ulamek sekundy). Najwyzej 3 razy na film.
+    onStuck: () => {
+      if (token !== loadToken) return;
+      stuckRebuilds.set(t.id, (stuckRebuilds.get(t.id) ?? 0) + 1);
+      if (stuckRebuilds.get(t.id) > 3) return showError('Ten film się zacina — spróbuj ponownie albo przejdź dalej.');
+      setTimeout(() => token === loadToken && showTrack(0), 0);
+    },
   };
 
   api
@@ -402,6 +438,7 @@ function go(delta) {
 
 function setView(view) {
   state.view = view;
+  rememberPlace();
   $('#view-feed').classList.toggle('on', view === 'feed');
   $('#view-list').classList.toggle('on', view === 'list');
   $('#feed').hidden = view !== 'feed';
@@ -1008,4 +1045,4 @@ async function openSync() {
 
 wireUi();
 requestAnimationFrame(tickProgress);
-refresh();
+refresh().then(restorePlace);

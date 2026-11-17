@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { emptyDoc } from './library.mjs';
+import { writeFileChecked } from './files.mjs';
 
 const FILE = 'loopa-library.json';
 const API = 'https://api.github.com';
@@ -160,16 +161,7 @@ export class SyncEngine {
   }
 
   writeJson(file, data) {
-    fs.writeFileSync(`${file}.tmp`, JSON.stringify(data));
-    for (let attempt = 0; ; attempt++) {
-      try {
-        fs.renameSync(`${file}.tmp`, file);
-        return;
-      } catch (e) {
-        if (attempt >= 5) throw e;
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
-      }
-    }
+    writeFileChecked(file, JSON.stringify(data));
   }
 
   async token() {

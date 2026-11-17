@@ -42,6 +42,11 @@ export class NativePlayer {
     this.standby.classList.add('hidden');
     this.raf = 0;
     this.destroyed = false;
+    // Strażnik: film stojacy w miejscu albo petla krecaca sie co ulamek sekundy.
+    this.lastTime = -1;
+    this.stillSince = 0;
+    this.lastCycleAt = 0;
+    this.shortCycles = 0;
   }
 
   load(url, loop, autoplay) {
@@ -91,15 +96,44 @@ export class NativePlayer {
     }
   }
 
+  /**
+   * Gra, ma dane, a czas filmu nie idzie od 2,5 s - obraz stoi. Albo petla
+   * przeskakuje duzo czesciej, niz trwa jej odcinek - gra w kolko ulamek sekundy.
+   * Wtedy aplikacja buduje odtwarzacz od nowa (onStuck).
+   */
+  watch(a, seg) {
+    const now = performance.now();
+    if (a.currentTime !== this.lastTime || a.readyState < 3 || a.seeking) {
+      this.lastTime = a.currentTime;
+      this.stillSince = now;
+    } else if (now - this.stillSince > 2500) {
+      this.stillSince = now;
+      this.events.onStuck?.('stoi');
+    }
+  }
+
+  countCycle(seg) {
+    const now = performance.now();
+    const expected = ((seg.end - seg.loopStart) * 1000) / (this.active.playbackRate || 1);
+    this.shortCycles = this.lastCycleAt && now - this.lastCycleAt < expected * 0.5 ? this.shortCycles + 1 : 0;
+    this.lastCycleAt = now;
+    if (this.shortCycles >= 3) {
+      this.shortCycles = 0;
+      this.events.onStuck?.('petla');
+    }
+  }
+
   check() {
     const a = this.active;
     if (this.stopped) return;
     // Po naturalnym koncu element jest "wstrzymany" - to wlasnie moment na petle.
     if ((a.paused && !a.ended) || !a.duration) return;
     const seg = this.seg();
+    if (!a.ended) this.watch(a, seg);
     // Rezerwa ~2 klatek: rAF przychodzi co ~16 ms, a koniec ma byc koncem.
     if (a.currentTime < seg.end - 0.035 && !a.ended) return;
     this.cycles += 1;
+    this.countCycle(seg);
     if (this.events.onCycle?.(this.cycles) === 'stop') {
       this.stopped = true;
       a.pause();

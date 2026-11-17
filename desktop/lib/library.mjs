@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { logError, onDisk, writeFileChecked } from './files.mjs';
 
 export const DEFAULT_LOOP = { startMs: 0, loopStartMs: 0, endMs: 0, repeatMode: 'OFF', repeatCount: 3, speed: 1 };
 
@@ -60,10 +61,26 @@ export class Library {
   }
 
   save({ silent = false } = {}) {
-    const tmp = `${this.file}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ version: 2, doc: this.doc, local: this.local }));
-    fs.renameSync(tmp, this.file);
+    this.lastText = JSON.stringify({ version: 2, doc: this.doc, local: this.local });
+    try {
+      writeFileChecked(this.file, this.lastText);
+    } catch {
+      // Opisane w loopa-errors.log; biblioteka zostaje w pamieci, a co minute
+      // [ensureOnDisk] probuje zapisac ja znowu.
+    }
     for (const fn of this.listeners) fn({ silent });
+  }
+
+  /**
+   * Co minute: czy na dysku jest to, co w pamieci. Gdy nie (zapis po cichu
+   * nie doszedl), zapisujemy jeszcze raz - nic nie czeka na zamkniecie apki.
+   */
+  ensureOnDisk() {
+    if (!this.lastText || onDisk(this.file, this.lastText)) return;
+    logError(this.file, 'na dysku byla starsza biblioteka niz w pamieci - zapisuje ponownie');
+    try {
+      writeFileChecked(this.file, this.lastText);
+    } catch {}
   }
 
   /** Zastepuje caly dokument (po synchronizacji). */

@@ -250,6 +250,10 @@ async function createWindow() {
     },
   });
   if (HIDDEN) win.webContents.setAudioMuted(true);
+  // Padniete okno (brak pamieci, blad sterownika) wstaje samo, zamiast zostac czarne.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    if (details.reason !== 'clean-exit') setTimeout(() => win && !win.isDestroyed() && win.webContents.reload(), 1000);
+  });
   // Linki z okna (np. "Otworz zrodlo") ida do przegladarki, nie do nowego okna apki.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https:\/\//.test(url)) shell.openExternal(url);
@@ -448,8 +452,22 @@ app.whenReady().then(async () => {
   if (!HIDDEN || process.env.LOOPA_CLIPTEST === '1') watchClipboard();
   if (!HIDDEN || process.env.LOOPA_CLIPTEST === '1') startShareServer();
   sync.start();
+  setInterval(() => library.ensureOnDisk(), 60_000);
   // Miniatury odswiezamy dopiero po pierwszej synchronizacji - dochodza filmy z telefonu.
   setTimeout(refreshStale, 15000);
+});
+
+/**
+ * Gdy padnie proces karty graficznej, Chromium uruchamia go po cichu od nowa,
+ * ale filmy, ktore graly, potrafia potem rysowac rozsypany obraz i sie zacinac
+ * (az do zamkniecia apki). Odswiezamy wtedy okno - wraca na ten sam film.
+ */
+let lastReload = 0;
+app.on('child-process-gone', (_e, details) => {
+  if (details.type !== 'GPU' || !win || win.isDestroyed()) return;
+  if (Date.now() - lastReload < 30_000) return; // nie w kolko, gdy karta pada raz za razem
+  lastReload = Date.now();
+  setTimeout(() => win && !win.isDestroyed() && win.webContents.reload(), 1500);
 });
 
 app.on('before-quit', () => {
